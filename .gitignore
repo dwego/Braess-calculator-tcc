@@ -1,0 +1,6 @@
+/.venv
+/maps/*.png
+/maps/*.gpkg
+/maps/*.graphml
+/maps/*.osms
+
