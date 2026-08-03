@@ -1,0 +1,10 @@
+/.venv
+.env
+/.vscode
+/.idea
+/cache
+
+/maps/__pycache__
+/maps/cache
+
+/outputs

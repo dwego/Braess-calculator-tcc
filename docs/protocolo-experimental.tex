@@ -1,0 +1,634 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{geometry}
+\usepackage{hyperref}
+
+\geometry{margin=2.5cm}
+
+\title{Protocolo de Implementação do Simulador do Paradoxo de Braess}
+\author{Diego Trigo Araujo}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Objetivo}
+
+Este documento define a ordem de implementação, os requisitos técnicos e os
+critérios de validação do código utilizado na pesquisa sobre o paradoxo de
+Braess.
+
+O objetivo principal do software é:
+
+\begin{quote}
+Modelar uma sub-rede viária como um multidígrafo, calcular uma aproximação do
+equilíbrio de tráfego, remover conexões da rede e verificar se alguma remoção
+reduz o tempo total de viagem do sistema.
+\end{quote}
+
+O desenvolvimento deverá priorizar:
+
+\begin{itemize}
+    \item correção matemática;
+    \item preservação da estrutura de multidígrafo;
+    \item separação entre etapas;
+    \item testes automatizados;
+    \item reprodutibilidade dos experimentos;
+    \item rastreabilidade dos parâmetros utilizados.
+\end{itemize}
+
+\section{Escopo do software}
+
+O software deverá implementar:
+
+\begin{enumerate}
+    \item obtenção ou carregamento de uma rede viária;
+    \item preservação da rede como \texttt{MultiDiGraph};
+    \item preparação dos atributos das arestas;
+    \item representação de demanda origem-destino;
+    \item funções de custo por aresta;
+    \item cálculo de menor caminho;
+    \item atribuição de tráfego;
+    \item aproximação do equilíbrio de Wardrop;
+    \item remoção controlada de conexões;
+    \item comparação entre cenários;
+    \item exportação de resultados.
+\end{enumerate}
+
+Não fazem parte do escopo inicial:
+
+\begin{itemize}
+    \item simulação dinâmica de filas;
+    \item tráfego em tempo real;
+    \item interface gráfica;
+    \item modelagem microscópica de veículos;
+    \item controle semafórico detalhado;
+    \item previsão de trânsito.
+\end{itemize}
+
+\section{Estrutura planejada}
+
+A estrutura inicial do projeto deverá seguir:
+
+\begin{verbatim}
+src/
+  braess/
+    graph/
+    demand/
+    costs/
+    routing/
+    equilibrium/
+    experiments/
+    metrics/
+    io/
+
+tests/
+  unit/
+  integration/
+  validation/
+
+experiments/
+outputs/
+scripts/
+\end{verbatim}
+
+Cada módulo deverá possuir responsabilidade única.
+
+\section{Regras gerais de implementação}
+
+\begin{enumerate}
+    \item A rede não deverá ser convertida para \texttt{DiGraph} durante o
+    experimento principal.
+    
+    \item Cada aresta deverá ser identificada pela tripla
+    \((u,v,k)\).
+    
+    \item Parâmetros experimentais não deverão ficar fixos dentro do código.
+    
+    \item Demanda, tolerância, função de custo e área analisada deverão ser
+    definidos em arquivos de configuração.
+    
+    \item Cada etapa deverá possuir testes independentes.
+    
+    \item Um cenário não convergente não poderá ser classificado como resultado
+    válido.
+    
+    \item Toda execução deverá salvar parâmetros, métricas e versão do código.
+\end{enumerate}
+
+\section{Fase 1 --- Preparação do experimento}
+
+\subsection{Tarefa 1.1 --- Criar arquivo de configuração}
+
+Criar um arquivo YAML para cada experimento.
+
+Exemplo:
+
+\begin{verbatim}
+experiments/
+  synthetic_braess.yaml
+  sao_jose.yaml
+\end{verbatim}
+
+O arquivo deverá conter:
+
+\begin{itemize}
+    \item identificação do experimento;
+    \item origem dos dados;
+    \item coordenadas;
+    \item raio;
+    \item função de custo;
+    \item algoritmo de equilíbrio;
+    \item tolerância;
+    \item limite de iterações;
+    \item matriz origem-destino;
+    \item unidade de remoção;
+    \item diretório de saída.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+Nenhum parâmetro metodológico relevante deverá depender de uma constante
+espalhada no código.
+
+\subsection{Tarefa 1.2 --- Definir identidade de aresta}
+
+Criar uma estrutura imutável para representar arestas:
+
+\begin{verbatim}
+@dataclass(frozen=True, slots=True)
+class EdgeId:
+    u: int
+    v: int
+    key: int
+\end{verbatim}
+
+\textbf{Critério de aceite:}
+
+Duas arestas paralelas entre os mesmos nós deverão poder receber fluxos e
+custos diferentes.
+
+\subsection{Tarefa 1.3 --- Definir formato de resultados}
+
+Definir previamente os arquivos gerados por cada execução:
+
+\begin{itemize}
+    \item \texttt{metadata.json};
+    \item \texttt{iterations.csv};
+    \item \texttt{edge\_flows.csv};
+    \item \texttt{summary.csv};
+    \item \texttt{removed\_connections.csv}.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+Uma execução deverá poder ser analisada posteriormente sem necessidade de
+executar novamente o código.
+
+\section{Fase 2 --- Rede e pré-processamento}
+
+\subsection{Tarefa 2.1 --- Carregar a rede como multidígrafo}
+
+O módulo deverá:
+
+\begin{itemize}
+    \item carregar dados do OpenStreetMap;
+    \item utilizar \texttt{networkx.MultiDiGraph};
+    \item preservar direção e arestas paralelas;
+    \item salvar o grafo bruto antes do pré-processamento.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+O tipo do objeto final deverá permanecer \texttt{MultiDiGraph}.
+
+\subsection{Tarefa 2.2 --- Validar topologia}
+
+A validação deverá verificar:
+
+\begin{itemize}
+    \item número de nós;
+    \item número de arestas;
+    \item componentes fortemente conectadas;
+    \item arestas paralelas;
+    \item laços;
+    \item atributos ausentes;
+    \item presença de caminhos entre pares origem-destino.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+Deverá ser gerado um relatório contendo os problemas encontrados.
+
+\subsection{Tarefa 2.3 --- Preparar velocidades}
+
+Para cada aresta, determinar:
+
+\begin{itemize}
+    \item velocidade obtida diretamente da fonte;
+    \item velocidade estimada por classe viária;
+    \item origem do valor utilizado.
+\end{itemize}
+
+O atributo final deverá ser:
+
+\begin{verbatim}
+speed_kph
+speed_source
+\end{verbatim}
+
+\textbf{Critério de aceite:}
+
+Nenhuma aresta válida deverá permanecer sem velocidade.
+
+\subsection{Tarefa 2.4 --- Calcular tempo de fluxo livre}
+
+O tempo deverá ser calculado por:
+
+\begin{equation}
+    t_e^0 = \frac{l_e}{v_e}
+\end{equation}
+
+O valor deverá ser armazenado no atributo:
+
+\begin{verbatim}
+free_flow_time
+\end{verbatim}
+
+\textbf{Critério de aceite:}
+
+Todo tempo de fluxo livre deverá ser positivo.
+
+\subsection{Tarefa 2.5 --- Estimar capacidade}
+
+A capacidade deverá considerar:
+
+\begin{itemize}
+    \item tipo de via;
+    \item quantidade de faixas;
+    \item sentido;
+    \item valor padrão quando houver dado ausente;
+    \item origem da regra aplicada.
+\end{itemize}
+
+Os atributos deverão ser:
+
+\begin{verbatim}
+capacity
+capacity_source
+\end{verbatim}
+
+\textbf{Critério de aceite:}
+
+Toda aresta utilizada na simulação deverá possuir capacidade positiva.
+
+\section{Fase 3 --- Demanda}
+
+\subsection{Tarefa 3.1 --- Criar modelo origem-destino}
+
+Criar uma estrutura:
+
+\begin{verbatim}
+@dataclass(frozen=True, slots=True)
+class ODPair:
+    origin: int
+    destination: int
+    demand: float
+\end{verbatim}
+
+\textbf{Critério de aceite:}
+
+A demanda deverá ser positiva e os nós deverão existir no grafo.
+
+\subsection{Tarefa 3.2 --- Validar matriz origem-destino}
+
+Verificar:
+
+\begin{itemize}
+    \item existência dos nós;
+    \item conectividade;
+    \item demanda total;
+    \item duplicidade de pares;
+    \item unidade utilizada.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+Nenhum par desconectado deverá entrar no solver sem ser explicitamente
+sinalizado.
+
+\section{Fase 4 --- Funções de custo}
+
+\subsection{Tarefa 4.1 --- Criar interface comum}
+
+A interface deverá expor:
+
+\begin{verbatim}
+travel_time(...)
+integral(...)
+\end{verbatim}
+
+A integral será utilizada pelo algoritmo de Frank--Wolfe.
+
+\subsection{Tarefa 4.2 --- Implementar função linear}
+
+Implementar:
+
+\begin{equation}
+    t_e(x_e) = \alpha_e + \beta_e x_e
+\end{equation}
+
+\textbf{Critério de aceite:}
+
+A função deverá reproduzir exatamente os valores do exemplo sintético.
+
+\subsection{Tarefa 4.3 --- Implementar função BPR}
+
+Implementar:
+
+\begin{equation}
+    t_e(x_e)
+    =
+    t_e^0
+    \left[
+        1 +
+        \alpha
+        \left(
+            \frac{x_e}{c_e}
+        \right)^\beta
+    \right]
+\end{equation}
+
+\textbf{Critérios de aceite:}
+
+\begin{itemize}
+    \item \(t_e(0)=t_e^0\);
+    \item o tempo não diminui quando o fluxo aumenta;
+    \item a capacidade deve ser positiva;
+    \item a integral deve possuir teste automatizado.
+\end{itemize}
+
+\section{Fase 5 --- Roteamento}
+
+\subsection{Tarefa 5.1 --- Menor caminho no multidígrafo}
+
+Implementar uma função que retorne:
+
+\begin{verbatim}
+list[EdgeId]
+\end{verbatim}
+
+e não apenas uma lista de nós.
+
+\textbf{Critério de aceite:}
+
+Em um grafo com duas arestas paralelas, a aresta com menor custo deverá ser
+selecionada corretamente pela chave \texttt{key}.
+
+\subsection{Tarefa 5.2 --- Atribuição All-or-Nothing}
+
+Para cada par origem-destino:
+
+\begin{enumerate}
+    \item calcular o menor caminho;
+    \item atribuir toda a demanda ao caminho;
+    \item acumular o fluxo nas arestas;
+    \item retornar o vetor auxiliar de fluxos.
+\end{enumerate}
+
+\textbf{Critério de aceite:}
+
+A demanda total atribuída deverá ser igual à demanda total de entrada.
+
+\section{Fase 6 --- Equilíbrio}
+
+\subsection{Tarefa 6.1 --- Implementar métricas}
+
+Implementar:
+
+\begin{itemize}
+    \item tempo total do sistema;
+    \item tempo médio;
+    \item objetivo de Beckmann;
+    \item lacuna relativa;
+    \item número de iterações.
+\end{itemize}
+
+\subsection{Tarefa 6.2 --- Implementar MSA}
+
+O MSA será utilizado como solver inicial e referência.
+
+\textbf{Critério de aceite:}
+
+O algoritmo deverá convergir no exemplo sintético dentro de tolerância
+definida.
+
+\subsection{Tarefa 6.3 --- Implementar Frank--Wolfe}
+
+Cada iteração deverá executar:
+
+\begin{enumerate}
+    \item atualização dos custos;
+    \item atribuição All-or-Nothing;
+    \item cálculo da direção;
+    \item busca do tamanho do passo;
+    \item atualização do fluxo;
+    \item cálculo da convergência.
+\end{enumerate}
+
+A atualização será:
+
+\begin{equation}
+    \mathbf{x}^{(n+1)}
+    =
+    \mathbf{x}^{(n)}
+    +
+    \lambda_n
+    \left(
+        \mathbf{y}^{(n)} - \mathbf{x}^{(n)}
+    \right)
+\end{equation}
+
+\textbf{Critério de aceite:}
+
+O solver deverá retornar:
+
+\begin{itemize}
+    \item fluxo final;
+    \item histórico de iterações;
+    \item estado de convergência;
+    \item lacuna relativa final;
+    \item tempo total do sistema.
+\end{itemize}
+
+\section{Fase 7 --- Validação sintética}
+
+\subsection{Tarefa 7.1 --- Criar rede clássica de Braess}
+
+Criar um grafo com os nós:
+
+\begin{verbatim}
+O, A, B, D
+\end{verbatim}
+
+e as arestas definidas no trabalho.
+
+\subsection{Tarefa 7.2 --- Validar cenário sem conexão}
+
+Com demanda de \(4000\), o resultado esperado é aproximadamente:
+
+\begin{equation}
+    65 \text{ minutos}
+\end{equation}
+
+\subsection{Tarefa 7.3 --- Validar cenário com conexão}
+
+Com demanda de \(4000\), o resultado esperado é aproximadamente:
+
+\begin{equation}
+    80 \text{ minutos}
+\end{equation}
+
+\textbf{Critério de aceite geral:}
+
+Os dois cenários deverão ser reproduzidos por testes automatizados dentro de
+uma tolerância explicitamente definida.
+
+\section{Fase 8 --- Remoção de conexões}
+
+\subsection{Tarefa 8.1 --- Definir unidade de remoção}
+
+A implementação deverá diferenciar:
+
+\begin{itemize}
+    \item aresta direcionada;
+    \item segmento bidirecional;
+    \item rua física composta por múltiplas arestas.
+\end{itemize}
+
+\subsection{Tarefa 8.2 --- Criar cenário-base}
+
+O cenário-base deverá salvar:
+
+\begin{itemize}
+    \item fluxos;
+    \item custos;
+    \item tempo total;
+    \item tempo médio;
+    \item convergência;
+    \item parâmetros.
+\end{itemize}
+
+\subsection{Tarefa 8.3 --- Executar remoções}
+
+Para cada conexão:
+
+\begin{enumerate}
+    \item copiar o grafo original;
+    \item remover a conexão;
+    \item validar conectividade;
+    \item recalcular o equilíbrio;
+    \item comparar com o cenário-base;
+    \item salvar o resultado.
+\end{enumerate}
+
+\section{Fase 9 --- Detecção}
+
+Uma remoção será classificada como candidata quando:
+
+\begin{enumerate}
+    \item o cenário-base convergir;
+    \item o cenário modificado convergir;
+    \item a rede permanecer válida;
+    \item a demanda permanecer igual;
+    \item o tempo total diminuir;
+    \item a redução superar a tolerância numérica.
+\end{enumerate}
+
+A diferença será:
+
+\begin{equation}
+    \Delta T
+    =
+    T_{\mathrm{base}}
+    -
+    T_{\mathrm{rem}}
+\end{equation}
+
+e a melhoria relativa:
+
+\begin{equation}
+    I
+    =
+    \frac{
+        T_{\mathrm{base}}
+        -
+        T_{\mathrm{rem}}
+    }{
+        T_{\mathrm{base}}
+    }
+\end{equation}
+
+\section{Fase 10 --- Análise de sensibilidade}
+
+Executar variações em:
+
+\begin{itemize}
+    \item demanda;
+    \item capacidade;
+    \item parâmetros da função de custo;
+    \item tolerância;
+    \item pares origem-destino;
+    \item área da rede.
+\end{itemize}
+
+\textbf{Critério de aceite:}
+
+Uma conexão deverá ser considerada mais robusta quando a melhoria aparecer
+em múltiplos cenários e não apenas em uma configuração isolada.
+
+\section{Ordem de implementação}
+
+A ordem recomendada é:
+
+\begin{enumerate}
+    \item configuração;
+    \item \texttt{EdgeId};
+    \item função linear;
+    \item menor caminho em multidígrafo;
+    \item All-or-Nothing;
+    \item métricas;
+    \item MSA;
+    \item validação sintética;
+    \item Frank--Wolfe;
+    \item função BPR;
+    \item preparação da rede real;
+    \item capacidade;
+    \item demanda urbana;
+    \item cenário-base;
+    \item remoção de conexões;
+    \item análise de sensibilidade.
+\end{enumerate}
+
+\section{Definição de pronto}
+
+O projeto será considerado funcional quando:
+
+\begin{enumerate}
+    \item reproduzir o exemplo sintético;
+    \item preservar corretamente arestas paralelas;
+    \item conservar os fluxos;
+    \item demonstrar convergência;
+    \item executar um cenário-base urbano;
+    \item remover conexões de forma controlada;
+    \item gerar resultados reproduzíveis;
+    \item exportar métricas suficientes para análise.
+\end{enumerate}
+
+\end{document}
