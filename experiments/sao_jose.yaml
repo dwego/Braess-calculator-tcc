@@ -1,0 +1,399 @@
+# ==============================================================================
+# EXPERIMENTO URBANO EM SÃO JOSÉ DOS CAMPOS
+# ==============================================================================
+#
+# Este arquivo configura a aplicação do modelo de atribuição de tráfego
+# sobre uma sub-rede viária real.
+#
+# Os campos com valor null representam decisões metodológicas ainda não
+# finalizadas. O programa deve rejeitar a execução final caso algum campo
+# obrigatório permaneça indefinido.
+#
+# Unidades:
+# - distância: metros;
+# - velocidade: quilômetros por hora;
+# - tempo de viagem: segundos;
+# - demanda: veículos por hora;
+# - capacidade: veículos por hora.
+#
+# ==============================================================================
+
+schema_version: 1
+
+experiment:
+  id: sao-jose-v1
+  name: Análise urbana de São José dos Campos
+  type: urban
+
+  description: >
+    Análise de possíveis manifestações do paradoxo de Braess em uma
+    sub-rede viária urbana de São José dos Campos.
+
+  random_seed: 42
+
+
+network:
+  # A rede será obtida do OpenStreetMap por meio do OSMnx.
+  source: openstreetmap
+
+  graph_type: MultiDiGraph
+  directed: true
+  preserve_parallel_edges: true
+
+  # Apenas vias destinadas ao tráfego de veículos.
+  network_type: drive
+
+  # Simplifica nós intermediários que não representam escolhas de rota.
+  simplify: true
+
+  # Método de delimitação da rede.
+  extraction_method: point_radius
+
+  center:
+    latitude: -23.1791
+    longitude: -45.8869
+
+  # Raio inicialmente adotado no trabalho.
+  distance_m: 1800
+
+  # Não manter todas as componentes desconectadas.
+  retain_all: false
+
+  # Selecionar uma componente adequada à atribuição de tráfego.
+  component_selection: largest_strongly_connected
+
+  files:
+    raw_graph: data/raw/sao-jose-v1.graphml
+    prepared_graph: data/processed/sao-jose-v1.graphml
+    validation_report: data/processed/sao-jose-v1-validation.json
+
+  cache:
+    enabled: true
+    force_download: false
+
+
+preprocessing:
+  enabled: true
+
+  remove_invalid_edges: true
+  remove_isolated_nodes: true
+
+  normalize_osm_attributes: true
+  normalize_speed_units: true
+
+  # Estratégia para arestas sem quantidade de faixas.
+  missing_lanes_strategy: highway_class
+
+  # Último fallback quando nenhuma regra mais específica existir.
+  default_lanes: 1
+
+  # Estratégia para arestas sem velocidade máxima.
+  missing_speed_strategy: highway_class
+
+  # Último fallback de velocidade.
+  default_speed_kph: 30.0
+
+  # Registrar se o valor veio do OSM ou de uma estimativa.
+  record_attribute_sources: true
+
+
+speed:
+  # Primeiro tenta utilizar maxspeed; depois usa a classe highway.
+  method: osm_then_highway_class
+
+  attribute: speed_kph
+  source_attribute: speed_source
+
+  minimum_kph: 5.0
+  maximum_kph: 130.0
+
+  # Valores provisórios.
+  #
+  # Antes do experimento final, essas velocidades deverão ser revisadas e
+  # justificadas no trabalho ou substituídas por uma fonte adequada.
+  highway_defaults_kph:
+    motorway: 100.0
+    motorway_link: 60.0
+    trunk: 80.0
+    trunk_link: 50.0
+    primary: 60.0
+    primary_link: 40.0
+    secondary: 50.0
+    secondary_link: 35.0
+    tertiary: 40.0
+    tertiary_link: 30.0
+    residential: 30.0
+    living_street: 20.0
+    service: 20.0
+    unclassified: 30.0
+
+  # Quando o OSM fornece mais de uma velocidade, utilizar a menor.
+  multiple_values_strategy: minimum
+
+
+free_flow_time:
+  length_attribute: length
+  speed_attribute: speed_kph
+  output_attribute: free_flow_time
+
+  unit: seconds
+  minimum_seconds: 0.001
+
+
+capacity:
+  enabled: true
+
+  # Estimativa baseada em classificação da via e número de faixas.
+  method: highway_class_and_lanes
+
+  attribute: capacity
+  source_attribute: capacity_source
+
+  unit: vehicles_per_hour
+
+  # Valores ainda provisórios.
+  default_per_lane: null
+  default_lanes: 1
+
+  highway_capacity_per_lane:
+    motorway: null
+    motorway_link: null
+    trunk: null
+    trunk_link: null
+    primary: null
+    primary_link: null
+    secondary: null
+    secondary_link: null
+    tertiary: null
+    tertiary_link: null
+    residential: null
+    living_street: null
+    service: null
+    unclassified: null
+
+  minimum: 1.0
+
+
+cost:
+  # Modelo inicialmente previsto para a aplicação urbana.
+  model: bpr
+
+  output_attribute: congested_time
+
+  bpr:
+    # Valores clássicos iniciais, ainda sujeitos a justificativa.
+    alpha: 0.15
+    beta: 4.0
+
+    free_flow_time_attribute: free_flow_time
+    capacity_attribute: capacity
+
+  validation:
+    require_nonnegative: true
+    require_monotonic: true
+    require_positive_capacity: true
+
+
+demand:
+  # Inicialmente, a demanda será fornecida em arquivo CSV.
+  source: csv
+
+  # Colunas esperadas:
+  # origin,destination,demand
+  file: experiments/od/sao-jose-v1.csv
+
+  unit: vehicles_per_hour
+
+  validation:
+    require_positive_demand: true
+    reject_duplicate_pairs: true
+    reject_same_origin_destination: true
+    require_path: true
+
+
+routing:
+  shortest_path_algorithm: dijkstra
+  weight: congested_time
+
+  return_edge_keys: true
+  tie_breaking: deterministic
+
+  fail_on_no_path: true
+
+
+assignment:
+  algorithm: frank_wolfe
+
+  max_iterations: 200
+  min_iterations: 1
+
+  convergence_metric: relative_gap
+  relative_gap_tolerance: 0.0001
+
+  initial_flow: all_or_nothing
+
+  frank_wolfe:
+    line_search: bounded_scalar_minimization
+
+    step_lower_bound: 0.0
+    step_upper_bound: 1.0
+
+    line_search_tolerance: 0.000001
+    line_search_max_iterations: 100
+
+
+metrics:
+  calculate_total_system_travel_time: true
+  calculate_average_travel_time: true
+  calculate_relative_gap: true
+  calculate_beckmann_objective: true
+  calculate_shortest_path_costs: true
+  calculate_assigned_demand: true
+  calculate_runtime: true
+  calculate_max_volume_capacity_ratio: true
+
+
+candidates:
+  # Inicialmente, testar apenas conexões utilizadas no equilíbrio-base.
+  method: baseline_used_edges
+
+  # null significa sem limite.
+  limit: null
+
+  require_baseline_flow: true
+  minimum_baseline_flow: 0.000001
+
+  exclude_service_roads: true
+  exclude_private_roads: true
+  exclude_invalid_edges: true
+
+  preserve_od_connectivity: true
+
+
+edge_removal:
+  enabled: true
+
+  # Esta decisão ainda precisa ser formalizada.
+  #
+  # Opções previstas:
+  # - directed_edge;
+  # - bidirectional_segment;
+  # - physical_connection.
+  unit: physical_connection
+
+  # Estratégia provisória de agrupamento.
+  grouping_method: osm_id
+
+  # Pode ser preenchido caso seja necessário corrigir agrupamentos manualmente.
+  mapping_file: null
+
+  recompute_equilibrium: true
+  warm_start: false
+
+  copy_graph_for_each_scenario: true
+  reject_disconnected_scenarios: true
+
+  save_modified_graphs: false
+
+
+classification:
+  metric: total_system_travel_time
+
+  require_baseline_convergence: true
+  require_removal_convergence: true
+  require_strict_improvement: true
+
+  # Ainda não definidos metodologicamente.
+  minimum_absolute_improvement: null
+  minimum_relative_improvement: null
+
+  # Margem mínima contra diferenças puramente numéricas.
+  numerical_tolerance: 0.000001
+
+
+sensitivity:
+  # Será habilitada após o primeiro experimento completo.
+  enabled: false
+
+  demand:
+    multipliers:
+      - 0.50
+      - 0.75
+      - 1.00
+      - 1.25
+      - 1.50
+
+  capacity:
+    multipliers:
+      - 0.80
+      - 1.00
+      - 1.20
+
+  bpr:
+    alpha_values:
+      - 0.10
+      - 0.15
+      - 0.20
+
+    beta_values:
+      - 3.0
+      - 4.0
+      - 5.0
+
+
+outputs:
+  directory: outputs/sao-jose-v1
+
+  overwrite: false
+  create_run_directory: true
+
+  save:
+    resolved_config: true
+    metadata: true
+    graph_validation: true
+    iteration_history: true
+    edge_flows: true
+    od_results: true
+    scenario_summary: true
+    removal_results: true
+
+  files:
+    resolved_config: resolved-config.yaml
+    metadata: metadata.json
+    graph_validation: graph-validation.json
+    iterations: iterations.csv
+    edge_flows: edge-flows.csv
+    od_results: od-results.csv
+    summary: summary.json
+    removal_results: removal-results.csv
+
+
+reproducibility:
+  record_git_commit: true
+  require_clean_git_tree: false
+
+  record_dependency_versions: true
+  record_input_checksums: true
+  record_timestamp: true
+  record_platform: true
+  record_random_seed: true
+
+
+logging:
+  level: INFO
+  console: true
+  file: true
+  include_elapsed_time: true
+  iteration_interval: 1
+
+
+execution:
+  workers: 1
+  parallel_edge_removal: false
+
+  timeout_seconds: null
+
+  continue_on_scenario_error: true
+  reject_unknown_configuration_fields: true
+  validate_config_before_run: true
+  fail_on_non_finite_values: true

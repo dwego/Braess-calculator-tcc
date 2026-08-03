@@ -1,0 +1,1079 @@
+# ==============================================================================
+# CONFIGURAÇÃO DE EXEMPLO
+# ==============================================================================
+#
+# Este arquivo documenta todas as variáveis de configuração previstas pelo
+# simulador. Ele funciona como referência e não representa necessariamente
+# um experimento real.
+#
+# Os valores nulos indicam parâmetros que devem ser definidos antes da execução.
+# Parâmetros que não se aplicam ao experimento podem ser removidos do YAML final.
+#
+# Unidades adotadas:
+# - distância: metros
+# - velocidade: quilômetros por hora
+# - tempo das arestas: segundos
+# - demanda: veículos por hora
+# - capacidade: veículos por hora
+#
+# ==============================================================================
+
+
+# Versão do formato deste arquivo.
+# Deve ser atualizada caso a estrutura do YAML seja alterada de forma incompatível.
+schema_version: 1
+
+
+# ==============================================================================
+# IDENTIFICAÇÃO DO EXPERIMENTO
+# ==============================================================================
+
+experiment:
+  # Identificador único e estável do experimento.
+  # Recomenda-se usar letras minúsculas, números e hífens.
+  id: example-experiment-v1
+
+  # Nome legível do experimento.
+  name: Experimento de exemplo
+
+  # Descrição resumida do objetivo desta execução.
+  description: >
+    Arquivo de referência contendo todas as variáveis aceitas pelo simulador
+    do paradoxo de Braess.
+
+  # Tipo geral do experimento.
+  #
+  # Valores previstos:
+  # - synthetic: rede construída manualmente
+  # - urban: rede viária real
+  type: urban
+
+  # Versão lógica do experimento.
+  # Pode ser diferente da versão do schema.
+  version: 1
+
+  # Semente utilizada por operações pseudoaleatórias.
+  # Mesmo valor deve produzir os mesmos resultados quando houver aleatoriedade.
+  random_seed: 42
+
+  # Autor ou responsável pela configuração.
+  author: Diego Trigo Araujo
+
+  # Tags livres para organização dos resultados.
+  tags:
+    - braess
+    - traffic-assignment
+    - sao-jose-dos-campos
+
+
+# ==============================================================================
+# REDE
+# ==============================================================================
+
+network:
+  # Origem da rede.
+  #
+  # Valores previstos:
+  # - openstreetmap: baixar pelo OSMnx
+  # - graphml: carregar arquivo GraphML local
+  # - synthetic: construir rede definida manualmente
+  source: openstreetmap
+
+  # Tipo de estrutura esperada.
+  # O experimento principal deve utilizar MultiDiGraph.
+  graph_type: MultiDiGraph
+
+  # Indica se as arestas possuem direção.
+  directed: true
+
+  # Indica se arestas paralelas entre o mesmo par de nós devem ser preservadas.
+  preserve_parallel_edges: true
+
+  # Tipo de rede solicitado ao OSMnx.
+  #
+  # Valores comuns:
+  # - drive
+  # - drive_service
+  # - walk
+  # - bike
+  # - all
+  #
+  # Para este trabalho, o valor principal será drive.
+  network_type: drive
+
+  # Simplifica a topologia do OpenStreetMap, removendo nós intermediários que
+  # não representam interseções ou decisões de rota.
+  simplify: true
+
+  # Mantém apenas a maior componente conectada retornada pelo OSMnx.
+  retain_all: false
+
+  # Remove vias privadas quando o provedor permitir esse filtro.
+  truncate_by_edge: false
+
+  # Método usado para delimitar a área.
+  #
+  # Valores previstos:
+  # - point_radius: ponto central e raio
+  # - bounding_box: caixa geográfica
+  # - polygon: polígono geográfico
+  # - file: rede previamente armazenada
+  extraction_method: point_radius
+
+  center:
+    # Latitude do ponto central.
+    latitude: -23.1791
+
+    # Longitude do ponto central.
+    longitude: -45.8869
+
+  # Distância utilizada na extração por ponto.
+  # Unidade: metros.
+  distance_m: 1800
+
+  bounding_box:
+    # Utilizados apenas quando extraction_method for bounding_box.
+    north: null
+    south: null
+    east: null
+    west: null
+
+  polygon:
+    # Caminho do arquivo geográfico utilizado quando extraction_method for polygon.
+    # Formatos possíveis dependerão da implementação.
+    path: null
+
+  files:
+    # Caminho onde o grafo bruto será armazenado.
+    raw_graph: data/raw/example.graphml
+
+    # Caminho do grafo após o pré-processamento.
+    prepared_graph: data/processed/example.graphml
+
+    # Caminho opcional para um GeoPackage.
+    geopackage: data/processed/example.gpkg
+
+  cache:
+    # Permite reutilizar respostas armazenadas pelo OSMnx.
+    enabled: true
+
+    # Força uma nova aquisição mesmo quando existir arquivo local.
+    force_download: false
+
+  component:
+    # Estratégia de seleção de componente após o download.
+    #
+    # Valores previstos:
+    # - none: não selecionar componente
+    # - largest_weakly_connected: maior componente fracamente conectada
+    # - largest_strongly_connected: maior componente fortemente conectada
+    selection: largest_strongly_connected
+
+  validation:
+    # Rejeita a rede quando ela não for MultiDiGraph.
+    require_multidigraph: true
+
+    # Rejeita arestas com comprimento ausente ou inválido.
+    require_positive_length: true
+
+    # Permite ou rejeita laços, isto é, arestas de um nó para ele mesmo.
+    allow_self_loops: false
+
+    # Permite arestas sem nome de rua.
+    allow_missing_name: true
+
+    # Permite arestas sem classificação highway.
+    allow_missing_highway: false
+
+
+# ==============================================================================
+# REDE SINTÉTICA
+# ==============================================================================
+
+synthetic_network:
+  # Esta seção é usada somente quando network.source for synthetic.
+
+  # Lista de nós criados manualmente.
+  nodes:
+    - id: O
+      label: Origem
+
+    - id: A
+      label: Nó intermediário A
+
+    - id: B
+      label: Nó intermediário B
+
+    - id: D
+      label: Destino
+
+  # Lista de arestas sintéticas.
+  edges:
+    - u: O
+      v: A
+      key: 0
+
+      # Modelo de custo específico da aresta.
+      cost_model: linear
+
+      # Termo constante da função linear.
+      alpha: 45.0
+
+      # Coeficiente dependente do fluxo.
+      beta: 0.0
+
+      # Capacidade pode ser nula para a função linear clássica.
+      capacity: null
+
+    - u: O
+      v: B
+      key: 0
+      cost_model: linear
+      alpha: 0.0
+      beta: 0.01
+      capacity: null
+
+    - u: A
+      v: D
+      key: 0
+      cost_model: linear
+      alpha: 0.0
+      beta: 0.01
+      capacity: null
+
+    - u: B
+      v: D
+      key: 0
+      cost_model: linear
+      alpha: 45.0
+      beta: 0.0
+      capacity: null
+
+    - u: A
+      v: B
+      key: 0
+      cost_model: linear
+      alpha: 0.0
+      beta: 0.0
+      capacity: null
+
+      # Permite ativar ou desativar a conexão em diferentes cenários.
+      enabled: true
+
+
+# ==============================================================================
+# PRÉ-PROCESSAMENTO
+# ==============================================================================
+
+preprocessing:
+  # Indica se a etapa de pré-processamento será executada.
+  enabled: true
+
+  # Remove arestas consideradas inválidas antes da simulação.
+  remove_invalid_edges: true
+
+  # Remove nós que ficam isolados após o tratamento das arestas.
+  remove_isolated_nodes: true
+
+  # Padroniza valores que podem vir como número, texto ou lista no OSM.
+  normalize_osm_attributes: true
+
+  # Converte unidades de velocidade para km/h.
+  normalize_speed_units: true
+
+  # Converte o tempo calculado para segundos.
+  travel_time_unit: seconds
+
+  # Estratégia para valores de lanes ausentes.
+  #
+  # Valores previstos:
+  # - default
+  # - highway_class
+  # - reject
+  missing_lanes_strategy: highway_class
+
+  # Quantidade padrão de faixas quando nenhuma informação puder ser obtida.
+  default_lanes: 1
+
+  # Estratégia para valores de maxspeed ausentes.
+  #
+  # Valores previstos:
+  # - highway_class
+  # - default
+  # - reject
+  missing_speed_strategy: highway_class
+
+  # Velocidade padrão usada somente como último fallback.
+  # Unidade: km/h.
+  default_speed_kph: 30.0
+
+  # Salva no grafo a origem de cada atributo estimado.
+  record_attribute_sources: true
+
+
+# ==============================================================================
+# REGRAS DE VELOCIDADE
+# ==============================================================================
+
+speed:
+  # Método principal para obter velocidades.
+  #
+  # Valores previstos:
+  # - osm_then_highway_class
+  # - osm_only
+  # - highway_class_only
+  method: osm_then_highway_class
+
+  # Nome do atributo final utilizado pelo simulador.
+  attribute: speed_kph
+
+  # Nome do atributo que registra a origem da velocidade.
+  source_attribute: speed_source
+
+  # Menor velocidade aceita.
+  # Unidade: km/h.
+  minimum_kph: 5.0
+
+  # Maior velocidade aceita.
+  # Valores fora desse limite devem ser revisados ou ajustados.
+  maximum_kph: 130.0
+
+  # Regras provisórias por classificação highway.
+  # Esses valores precisarão ser justificados no protocolo metodológico.
+  highway_defaults_kph:
+    motorway: 100.0
+    motorway_link: 60.0
+    trunk: 80.0
+    trunk_link: 50.0
+    primary: 60.0
+    primary_link: 40.0
+    secondary: 50.0
+    secondary_link: 35.0
+    tertiary: 40.0
+    tertiary_link: 30.0
+    residential: 30.0
+    living_street: 20.0
+    service: 20.0
+    unclassified: 30.0
+
+  # Tratamento de valores de maxspeed com múltiplos valores.
+  #
+  # Valores previstos:
+  # - minimum
+  # - maximum
+  # - mean
+  # - first
+  multiple_values_strategy: minimum
+
+
+# ==============================================================================
+# REGRAS DE CAPACIDADE
+# ==============================================================================
+
+capacity:
+  # Habilita o cálculo de capacidade das arestas.
+  enabled: true
+
+  # Método de estimativa.
+  #
+  # Valores previstos:
+  # - highway_class_and_lanes
+  # - fixed_per_lane
+  # - external_file
+  method: highway_class_and_lanes
+
+  # Nome do atributo final.
+  attribute: capacity
+
+  # Nome do atributo que registra a regra utilizada.
+  source_attribute: capacity_source
+
+  # Unidade adotada.
+  unit: vehicles_per_hour
+
+  # Capacidade padrão por faixa, usada como fallback.
+  default_per_lane: 1000.0
+
+  # Número padrão de faixas quando o atributo estiver ausente.
+  default_lanes: 1
+
+  # Regras provisórias de capacidade por faixa.
+  # Precisam ser revisadas e fundamentadas antes do experimento final.
+  highway_capacity_per_lane:
+    motorway: 2000.0
+    motorway_link: 1400.0
+    trunk: 1800.0
+    trunk_link: 1300.0
+    primary: 1600.0
+    primary_link: 1200.0
+    secondary: 1400.0
+    secondary_link: 1100.0
+    tertiary: 1200.0
+    tertiary_link: 1000.0
+    residential: 900.0
+    living_street: 600.0
+    service: 600.0
+    unclassified: 900.0
+
+  # Menor capacidade permitida.
+  minimum: 1.0
+
+  # Caminho para uma tabela externa, caso o método seja external_file.
+  external_rules_path: null
+
+
+# ==============================================================================
+# TEMPO DE FLUXO LIVRE
+# ==============================================================================
+
+free_flow_time:
+  # Nome do atributo de comprimento.
+  length_attribute: length
+
+  # Nome do atributo de velocidade.
+  speed_attribute: speed_kph
+
+  # Nome do atributo de saída.
+  output_attribute: free_flow_time
+
+  # Unidade do atributo de saída.
+  unit: seconds
+
+  # Menor tempo permitido para evitar arestas com custo igual a zero.
+  minimum_seconds: 0.001
+
+
+# ==============================================================================
+# FUNÇÃO DE CUSTO
+# ==============================================================================
+
+cost:
+  # Modelo aplicado às arestas urbanas.
+  #
+  # Valores previstos:
+  # - linear
+  # - bpr
+  model: bpr
+
+  # Nome do atributo que receberá o tempo congestionado atual.
+  output_attribute: congested_time
+
+  linear:
+    # Valores padrões para arestas lineares que não definirem parâmetros próprios.
+    default_alpha: 0.0
+    default_beta: 0.0
+
+  bpr:
+    # Parâmetro multiplicador da função BPR.
+    alpha: 0.15
+
+    # Expoente da relação entre fluxo e capacidade.
+    beta: 4.0
+
+    # Nome do atributo de tempo livre.
+    free_flow_time_attribute: free_flow_time
+
+    # Nome do atributo de capacidade.
+    capacity_attribute: capacity
+
+  validation:
+    # Exige que a função de custo seja não negativa.
+    require_nonnegative: true
+
+    # Exige que o custo não diminua com o aumento do fluxo.
+    require_monotonic: true
+
+    # Rejeita capacidades menores ou iguais a zero no modelo BPR.
+    require_positive_capacity: true
+
+
+# ==============================================================================
+# DEMANDA ORIGEM-DESTINO
+# ==============================================================================
+
+demand:
+  # Origem dos pares OD.
+  #
+  # Valores previstos:
+  # - inline
+  # - csv
+  # - generated
+  source: csv
+
+  # Unidade temporal da demanda.
+  unit: vehicles_per_hour
+
+  # Arquivo CSV com as colunas:
+  # origin,destination,demand
+  file: experiments/od/example.csv
+
+  # Pares definidos diretamente no YAML.
+  # Utilizados apenas quando source for inline.
+  pairs:
+    - origin: null
+      destination: null
+      demand: null
+
+  generation:
+    # Configurações utilizadas somente quando source for generated.
+
+    # Método para selecionar origens e destinos.
+    #
+    # Valores previstos:
+    # - explicit_nodes
+    # - geographic_points
+    # - boundary_nodes
+    # - random_connected_nodes
+    method: explicit_nodes
+
+    # Quantidade de pares a gerar.
+    pair_count: 1
+
+    # Demanda atribuída a cada par quando for utilizado valor fixo.
+    demand_per_pair: 4000.0
+
+    # Distância mínima desejada entre origem e destino.
+    # Unidade: metros.
+    minimum_distance_m: 500.0
+
+    # Distância máxima desejada entre origem e destino.
+    # null significa sem limite explícito.
+    maximum_distance_m: null
+
+  validation:
+    # Exige que todas as demandas sejam positivas.
+    require_positive_demand: true
+
+    # Rejeita pares repetidos.
+    reject_duplicate_pairs: true
+
+    # Rejeita origem igual ao destino.
+    reject_same_origin_destination: true
+
+    # Rejeita pares sem caminho válido.
+    require_path: true
+
+
+# ==============================================================================
+# ROTEAMENTO
+# ==============================================================================
+
+routing:
+  # Algoritmo de menor caminho.
+  #
+  # O algoritmo inicialmente previsto é Dijkstra.
+  shortest_path_algorithm: dijkstra
+
+  # Atributo utilizado como peso.
+  weight_attribute: congested_time
+
+  # O retorno deve preservar u, v e key.
+  return_edge_keys: true
+
+  # Comportamento em caso de empate entre arestas ou caminhos.
+  #
+  # Valores previstos:
+  # - lowest_edge_key
+  # - deterministic
+  # - random
+  tie_breaking: deterministic
+
+  # Semente usada caso tie_breaking seja random.
+  random_seed: 42
+
+  # Interrompe o experimento ao encontrar um par sem caminho.
+  fail_on_no_path: true
+
+
+# ==============================================================================
+# ATRIBUIÇÃO DE TRÁFEGO
+# ==============================================================================
+
+assignment:
+  # Solver principal.
+  #
+  # Valores previstos:
+  # - msa
+  # - frank_wolfe
+  algorithm: frank_wolfe
+
+  # Número máximo de iterações.
+  max_iterations: 200
+
+  # Número mínimo de iterações antes de aceitar convergência.
+  min_iterations: 1
+
+  # Critério principal de convergência.
+  #
+  # Valores previstos:
+  # - relative_gap
+  # - absolute_gap
+  # - flow_difference
+  convergence_metric: relative_gap
+
+  # Tolerância do critério de convergência.
+  relative_gap_tolerance: 0.0001
+
+  # Interrompe a execução caso sejam encontrados NaN ou infinito.
+  fail_on_non_finite_values: true
+
+  # Salva informações de todas as iterações.
+  record_iteration_history: true
+
+  # Estratégia para o fluxo inicial.
+  #
+  # Valores previstos:
+  # - all_or_nothing_free_flow
+  # - zero
+  # - provided
+  initial_flow: all_or_nothing_free_flow
+
+  msa:
+    # Fórmula de passo do MSA:
+    # lambda_n = 1 / iteration
+    step_rule: reciprocal_iteration
+
+  frank_wolfe:
+    # Método para calcular o tamanho do passo.
+    #
+    # Valores previstos:
+    # - exact_line_search
+    # - bounded_scalar_minimization
+    # - predefined
+    line_search: bounded_scalar_minimization
+
+    # Limites permitidos para lambda.
+    step_lower_bound: 0.0
+    step_upper_bound: 1.0
+
+    # Tolerância do método numérico de busca.
+    line_search_tolerance: 0.000001
+
+    # Número máximo de avaliações na busca de passo.
+    line_search_max_iterations: 100
+
+
+# ==============================================================================
+# MÉTRICAS
+# ==============================================================================
+
+metrics:
+  # Tempo total de viagem do sistema.
+  calculate_total_system_travel_time: true
+
+  # Tempo médio por veículo.
+  calculate_average_travel_time: true
+
+  # Valor da função objetivo de Beckmann.
+  calculate_beckmann_objective: true
+
+  # Lacuna relativa.
+  calculate_relative_gap: true
+
+  # Lacuna absoluta.
+  calculate_absolute_gap: true
+
+  # Custos dos menores caminhos por par OD.
+  calculate_shortest_path_costs: true
+
+  # Fluxo total atribuído.
+  calculate_assigned_demand: true
+
+  # Tempo de execução.
+  calculate_runtime: true
+
+  # Uso máximo da capacidade de uma aresta.
+  calculate_max_volume_capacity_ratio: true
+
+
+# ==============================================================================
+# VALIDAÇÃO SINTÉTICA
+# ==============================================================================
+
+validation:
+  synthetic:
+    # Habilita a comparação automática com resultados teóricos.
+    enabled: false
+
+    # Demanda usada no exemplo clássico.
+    demand: 4000.0
+
+    without_connector:
+      # Tempo esperado no cenário sem a conexão A -> B.
+      expected_average_travel_time: 65.0
+
+    with_connector:
+      # Tempo esperado no cenário com a conexão A -> B.
+      expected_average_travel_time: 80.0
+
+    # Diferença máxima aceita entre resultado teórico e computacional.
+    absolute_tolerance: 0.1
+
+    # Exige conservação da demanda.
+    check_flow_conservation: true
+
+    # Exige custos não negativos.
+    check_nonnegative_costs: true
+
+    # Exige convergência dos dois cenários.
+    require_convergence: true
+
+
+# ==============================================================================
+# SELEÇÃO DE CONEXÕES CANDIDATAS
+# ==============================================================================
+
+candidates:
+  # Método de seleção.
+  #
+  # Valores previstos:
+  # - all_eligible
+  # - baseline_used_edges
+  # - edge_betweenness
+  # - top_flow
+  # - combined
+  method: baseline_used_edges
+
+  # Quantidade máxima de candidatas.
+  # null significa sem limite explícito.
+  limit: null
+
+  # Exige que a conexão tenha recebido fluxo no cenário-base.
+  require_baseline_flow: true
+
+  # Fluxo mínimo para considerar a conexão utilizada.
+  minimum_baseline_flow: 0.000001
+
+  # Exclui arestas de serviço.
+  exclude_service_roads: true
+
+  # Exclui vias privadas.
+  exclude_private_roads: true
+
+  # Exclui arestas sem todos os atributos necessários.
+  exclude_invalid_edges: true
+
+  # Exclui conexões cuja remoção desconecta pares OD.
+  preserve_od_connectivity: true
+
+  centrality:
+    # Utilizado quando o método envolver centralidade.
+    metric: edge_betweenness
+
+    # Atributo usado como peso.
+    weight_attribute: free_flow_time
+
+    # Executa centralidade aproximada quando possível.
+    approximate: true
+
+    # Quantidade de amostras para aproximação.
+    sample_size: 300
+
+    # Semente para amostragem.
+    random_seed: 42
+
+
+# ==============================================================================
+# REMOÇÃO DE CONEXÕES
+# ==============================================================================
+
+edge_removal:
+  # Habilita os experimentos de remoção.
+  enabled: true
+
+  # Unidade removida em cada cenário.
+  #
+  # Valores previstos:
+  # - directed_edge: apenas uma tripla u, v, key
+  # - bidirectional_segment: segmento nos dois sentidos
+  # - physical_connection: conjunto que representa uma conexão física
+  unit: physical_connection
+
+  # Estratégia para agrupar arestas como conexão física.
+  #
+  # Valores previstos:
+  # - osm_id
+  # - street_name_and_geometry
+  # - explicit_mapping
+  grouping_method: osm_id
+
+  # Caminho para mapeamento manual de conexões, quando necessário.
+  mapping_file: null
+
+  # Recalcula o equilíbrio desde uma inicialização controlada.
+  recompute_equilibrium: true
+
+  # Permite usar o fluxo-base apenas como ponto inicial.
+  warm_start: false
+
+  # Mantém o grafo-base imutável.
+  copy_graph_for_each_scenario: true
+
+  # Interrompe o cenário quando algum par OD for desconectado.
+  reject_disconnected_scenarios: true
+
+  # Salva uma cópia de cada grafo modificado.
+  # Pode consumir bastante armazenamento.
+  save_modified_graphs: false
+
+
+# ==============================================================================
+# CLASSIFICAÇÃO DO PARADOXO
+# ==============================================================================
+
+classification:
+  # Métrica principal de comparação.
+  #
+  # Valores previstos:
+  # - total_system_travel_time
+  # - average_travel_time
+  metric: total_system_travel_time
+
+  # Exige convergência do cenário-base.
+  require_baseline_convergence: true
+
+  # Exige convergência do cenário modificado.
+  require_removal_convergence: true
+
+  # Exige redução estrita da métrica.
+  require_strict_improvement: true
+
+  # Melhoria absoluta mínima.
+  # null indica que ainda não foi metodologicamente definida.
+  minimum_absolute_improvement: null
+
+  # Melhoria relativa mínima.
+  # Exemplo: 0.01 corresponde a 1%.
+  # null indica que ainda não foi metodologicamente definida.
+  minimum_relative_improvement: null
+
+  # Margem usada para evitar classificação baseada apenas em erro numérico.
+  numerical_tolerance: 0.000001
+
+
+# ==============================================================================
+# ANÁLISE DE SENSIBILIDADE
+# ==============================================================================
+
+sensitivity:
+  # Habilita múltiplas execuções com variação de parâmetros.
+  enabled: false
+
+  demand:
+    # Multiplicadores aplicados às demandas originais.
+    multipliers:
+      - 0.5
+      - 0.75
+      - 1.0
+      - 1.25
+      - 1.5
+
+  capacity:
+    # Multiplicadores aplicados às capacidades estimadas.
+    multipliers:
+      - 0.8
+      - 1.0
+      - 1.2
+
+  bpr:
+    # Valores alternativos de alpha.
+    alpha_values:
+      - 0.10
+      - 0.15
+      - 0.20
+
+    # Valores alternativos de beta.
+    beta_values:
+      - 3.0
+      - 4.0
+      - 5.0
+
+  convergence:
+    # Tolerâncias alternativas para testar estabilidade numérica.
+    relative_gap_tolerances:
+      - 0.001
+      - 0.0001
+      - 0.00001
+
+
+# ==============================================================================
+# SAÍDAS
+# ==============================================================================
+
+outputs:
+  # Diretório-base do experimento.
+  directory: outputs/example-experiment-v1
+
+  # Impede sobrescrever um experimento existente.
+  overwrite: false
+
+  # Cria um diretório único para cada execução.
+  create_run_directory: true
+
+  # Formato do identificador de execução.
+  #
+  # Valores previstos:
+  # - timestamp
+  # - uuid
+  # - sequential
+  run_id_method: timestamp
+
+  files:
+    # Metadados gerais da execução.
+    metadata: metadata.json
+
+    # Histórico do solver.
+    iterations: iterations.csv
+
+    # Fluxos e custos finais por aresta.
+    edge_flows: edge_flows.csv
+
+    # Resumo do cenário.
+    summary: summary.json
+
+    # Resultado de cada remoção.
+    removal_results: removal_results.csv
+
+    # Custos por par origem-destino.
+    od_results: od_results.csv
+
+    # Relatório de validação da rede.
+    graph_validation: graph_validation.json
+
+  save:
+    # Salva configuração efetivamente utilizada.
+    resolved_config: true
+
+    # Salva histórico de cada iteração.
+    iteration_history: true
+
+    # Salva fluxo final de cada aresta.
+    edge_flows: true
+
+    # Salva resultados por par OD.
+    od_results: true
+
+    # Salva métricas agregadas.
+    summary: true
+
+    # Salva logs em arquivo.
+    logs: true
+
+  numeric_format:
+    # Quantidade de casas decimais nos CSVs.
+    decimal_places: 8
+
+    # Representação de valores ausentes.
+    missing_value: ""
+
+  csv:
+    # Separador usado nos arquivos CSV.
+    delimiter: ","
+
+    # Codificação dos arquivos.
+    encoding: utf-8
+
+  plots:
+    # Habilita geração automática de gráficos.
+    enabled: true
+
+    # Mapa com fluxos do cenário-base.
+    baseline_flow_map: true
+
+    # Curva da lacuna relativa por iteração.
+    convergence_curve: true
+
+    # Comparação entre cenário-base e remoções.
+    removal_comparison: true
+
+    # Formato das imagens.
+    format: png
+
+    # Resolução das imagens.
+    dpi: 300
+
+
+# ==============================================================================
+# METADADOS E REPRODUTIBILIDADE
+# ==============================================================================
+
+reproducibility:
+  # Salva o hash do commit Git utilizado.
+  record_git_commit: true
+
+  # Exige que o repositório esteja sem alterações locais.
+  # Pode permanecer false durante o desenvolvimento.
+  require_clean_git_tree: false
+
+  # Registra as versões das dependências.
+  record_dependency_versions: true
+
+  # Calcula checksum dos arquivos de entrada.
+  record_input_checksums: true
+
+  # Registra data e horário da execução.
+  record_timestamp: true
+
+  # Registra informações do sistema operacional.
+  record_platform: true
+
+  # Registra a semente utilizada.
+  record_random_seed: true
+
+
+# ==============================================================================
+# LOGS
+# ==============================================================================
+
+logging:
+  # Nível mínimo dos logs.
+  #
+  # Valores previstos:
+  # - DEBUG
+  # - INFO
+  # - WARNING
+  # - ERROR
+  # - CRITICAL
+  level: INFO
+
+  # Exibe mensagens no terminal.
+  console: true
+
+  # Salva mensagens em arquivo.
+  file: true
+
+  # Exibe o tempo decorrido nas mensagens.
+  include_elapsed_time: true
+
+  # Exibe o nome da etapa atual.
+  include_step_name: true
+
+  # Frequência de log das iterações.
+  # 1 registra todas; 10 registra uma a cada dez.
+  iteration_interval: 1
+
+
+# ==============================================================================
+# EXECUÇÃO
+# ==============================================================================
+
+execution:
+  # Número de processos paralelos.
+  # O valor 1 desativa paralelismo.
+  workers: 1
+
+  # Executa remoções em paralelo quando houver suporte.
+  parallel_edge_removal: false
+
+  # Tempo máximo opcional para uma execução.
+  # Unidade: segundos.
+  timeout_seconds: null
+
+  # Continua os demais cenários se uma remoção falhar.
+  continue_on_scenario_error: true
+
+  # Falha imediatamente quando a configuração possui campos desconhecidos.
+  reject_unknown_configuration_fields: true
+
+  # Valida o YAML antes de iniciar cálculos.
+  validate_config_before_run: true

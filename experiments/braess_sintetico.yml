@@ -1,0 +1,280 @@
+# ==============================================================================
+# EXPERIMENTO SINTÉTICO DO PARADOXO DE BRAESS
+# ==============================================================================
+#
+# Este experimento reproduz a rede teórica apresentada no capítulo 1 do TCC.
+#
+# Seu objetivo não é analisar uma cidade real, mas validar:
+# - a construção de um MultiDiGraph;
+# - as funções de custo lineares;
+# - o cálculo de menores caminhos;
+# - a atribuição de tráfego;
+# - a aproximação do equilíbrio de Wardrop;
+# - a comparação entre uma rede com e sem determinada conexão.
+#
+# Unidade de tempo adotada neste experimento: minutos.
+# Unidade de demanda: veículos.
+#
+# ==============================================================================
+
+schema_version: 1
+
+experiment:
+  # Identificador único do experimento.
+  id: synthetic-braess-v1
+
+  # Nome legível.
+  name: Validação sintética do paradoxo de Braess
+
+  # Tipo do experimento.
+  type: synthetic
+
+  # Descrição do propósito desta configuração.
+  description: >
+    Reprodução computacional da rede teórica do paradoxo de Braess
+    apresentada no primeiro capítulo do trabalho.
+
+  # Semente usada caso algum algoritmo precise desempatar caminhos.
+  random_seed: 42
+
+
+network:
+  # A rede será construída diretamente a partir deste arquivo.
+  source: synthetic
+
+  # Estrutura obrigatória para preservar arestas paralelas.
+  graph_type: MultiDiGraph
+
+  # As arestas possuem direção.
+  directed: true
+
+  # Arestas paralelas devem permanecer independentes.
+  preserve_parallel_edges: true
+
+
+synthetic_network:
+  nodes:
+    - id: O
+      label: Origem
+
+    - id: A
+      label: Nó intermediário A
+
+    - id: B
+      label: Nó intermediário B
+
+    - id: D
+      label: Destino
+
+  edges:
+    # Tempo: t(x) = 45
+    - id: edge-o-a
+      u: O
+      v: A
+      key: 0
+      enabled: true
+
+      cost:
+        model: linear
+        alpha: 45.0
+        beta: 0.0
+
+    # Tempo: t(x) = 0,01x
+    - id: edge-o-b
+      u: O
+      v: B
+      key: 0
+      enabled: true
+
+      cost:
+        model: linear
+        alpha: 0.0
+        beta: 0.01
+
+    # Tempo: t(x) = 0,01x
+    - id: edge-a-d
+      u: A
+      v: D
+      key: 0
+      enabled: true
+
+      cost:
+        model: linear
+        alpha: 0.0
+        beta: 0.01
+
+    # Tempo: t(x) = 45
+    - id: edge-b-d
+      u: B
+      v: D
+      key: 0
+      enabled: true
+
+      cost:
+        model: linear
+        alpha: 45.0
+        beta: 0.0
+
+    # Conexão responsável pela alteração do equilíbrio.
+    #
+    # Essa aresta será ativada no cenário "with_connector"
+    # e desativada no cenário "without_connector".
+    - id: edge-a-b
+      u: A
+      v: B
+      key: 0
+      enabled: true
+
+      cost:
+        model: linear
+        alpha: 0.0
+        beta: 0.0
+
+
+demand:
+  # Unidade da demanda para este experimento teórico.
+  unit: vehicles
+
+  pairs:
+    - origin: O
+      destination: D
+      demand: 4000.0
+
+
+routing:
+  # Algoritmo usado para encontrar a rota de menor custo.
+  shortest_path_algorithm: dijkstra
+
+  # Nome lógico do custo usado no roteamento.
+  weight: travel_time
+
+  # O caminho retornado deve identificar u, v e key.
+  return_edge_keys: true
+
+  # Empates devem sempre produzir o mesmo resultado.
+  tie_breaking: deterministic
+
+
+assignment:
+  # Solver principal previsto para o equilíbrio.
+  algorithm: frank_wolfe
+
+  # Número máximo de iterações.
+  max_iterations: 200
+
+  # Número mínimo de iterações antes de aceitar convergência.
+  min_iterations: 1
+
+  # Métrica usada para verificar a convergência.
+  convergence_metric: relative_gap
+
+  # Tolerância da lacuna relativa.
+  relative_gap_tolerance: 0.0001
+
+  # Inicialização por atribuição All-or-Nothing usando os custos iniciais.
+  initial_flow: all_or_nothing
+
+  frank_wolfe:
+    # Busca numérica do melhor tamanho de passo entre 0 e 1.
+    line_search: bounded_scalar_minimization
+
+    step_lower_bound: 0.0
+    step_upper_bound: 1.0
+
+    # Precisão da busca pelo tamanho de passo.
+    line_search_tolerance: 0.00000001
+
+    # Limite de iterações internas da busca.
+    line_search_max_iterations: 100
+
+
+scenarios:
+  # Cenário original sem a conexão intermediária.
+  - id: without-connector
+
+    name: Rede sem a conexão A para B
+
+    disabled_edges:
+      - edge-a-b
+
+    expected:
+      # Tempo médio teórico esperado em minutos.
+      average_travel_time: 65.0
+
+  # Cenário com a conexão intermediária.
+  - id: with-connector
+
+    name: Rede com a conexão A para B
+
+    disabled_edges: []
+
+    expected:
+      # Tempo médio teórico esperado em minutos.
+      average_travel_time: 80.0
+
+
+validation:
+  # Ativa a comparação dos resultados com os valores teóricos.
+  enabled: true
+
+  # Diferença absoluta máxima permitida em minutos.
+  absolute_tolerance: 0.1
+
+  # Exige conservação completa da demanda.
+  check_flow_conservation: true
+
+  # Exige que todos os custos sejam finitos e não negativos.
+  check_nonnegative_costs: true
+
+  # Os dois cenários devem convergir.
+  require_convergence: true
+
+  # O cenário com a conexão deve apresentar resultado pior.
+  require_braess_effect: true
+
+
+metrics:
+  calculate_total_system_travel_time: true
+  calculate_average_travel_time: true
+  calculate_relative_gap: true
+  calculate_beckmann_objective: true
+  calculate_assigned_demand: true
+  calculate_runtime: true
+
+
+outputs:
+  # Diretório-base dos resultados.
+  directory: outputs/synthetic-braess-v1
+
+  # Impede sobrescrever resultados anteriores.
+  overwrite: false
+
+  # Cria uma pasta separada para cada execução.
+  create_run_directory: true
+
+  save:
+    resolved_config: true
+    metadata: true
+    iteration_history: true
+    edge_flows: true
+    scenario_summary: true
+
+  files:
+    resolved_config: resolved-config.yaml
+    metadata: metadata.json
+    iterations: iterations.csv
+    edge_flows: edge-flows.csv
+    summary: summary.json
+
+
+logging:
+  level: INFO
+  console: true
+  file: true
+  iteration_interval: 1
+
+
+execution:
+  validate_config_before_run: true
+  reject_unknown_configuration_fields: true
+  fail_on_non_finite_values: true
