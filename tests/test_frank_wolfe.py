@@ -236,3 +236,31 @@ def test_frank_wolfe_rejects_invalid_tolerance() -> None:
             DEMAND,
             relative_gap_tolerance=0.0,
         )
+
+def test_final_history_matches_final_result() -> None:
+    graph = build_braess_network(
+        include_connector=False,
+    )
+
+    result = frank_wolfe(
+        graph,
+        DEMAND,
+        relative_gap_tolerance=1e-8,
+        max_iterations=100,
+    )
+
+    assert (
+        result.history[-1].relative_gap
+        == pytest.approx(
+            result.relative_gap
+        )
+    )
+
+    assert (
+        result.history[
+            -1
+        ].total_system_travel_time
+        == pytest.approx(
+            result.total_system_travel_time
+        )
+    )

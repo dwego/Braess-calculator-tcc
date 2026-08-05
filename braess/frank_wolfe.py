@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import networkx as nx
@@ -12,7 +13,7 @@ from braess.metrics import (
     relative_gap,
     total_system_travel_time,
 )
-from braess.models import EdgeFlowMap, EdgeId, ODPair
+from braess.models import EdgeFlowMap, ODPair
 from braess.synthetic import (
     COST_FUNCTION_ATTRIBUTE,
     create_zero_flows,
@@ -23,20 +24,7 @@ from braess.synthetic import (
 @dataclass(frozen=True, slots=True)
 class FrankWolfeIteration:
     """
-    Registra as métricas de uma iteração do Frank-Wolfe.
-
-    Attributes
-    ----------
-    iteration:
-        Número da iteração, começando em zero.
-    relative_gap:
-        Lacuna relativa calculada para o fluxo atual.
-    step_size:
-        Tamanho do passo usado para atualizar o fluxo.
-    beckmann_objective:
-        Valor da função objetivo de Beckmann.
-    total_system_travel_time:
-        Tempo total de viagem do sistema.
+    Métricas registradas em uma iteração do Frank-Wolfe.
     """
 
     iteration: int
@@ -50,25 +38,6 @@ class FrankWolfeIteration:
 class FrankWolfeResult:
     """
     Resultado final do algoritmo de Frank-Wolfe.
-
-    Attributes
-    ----------
-    flows:
-        Fluxo final de cada aresta.
-    converged:
-        Indica se a tolerância foi atingida.
-    iterations:
-        Quantidade de iterações executadas.
-    relative_gap:
-        Lacuna relativa final.
-    total_system_travel_time:
-        Tempo total de viagem da rede.
-    average_travel_time:
-        Tempo médio por veículo.
-    beckmann_objective:
-        Valor final da função objetivo de Beckmann.
-    history:
-        Histórico das iterações.
     """
 
     flows: EdgeFlowMap
@@ -81,6 +50,9 @@ class FrankWolfeResult:
     history: list[FrankWolfeIteration]
 
 
+ProgressCallback = Callable[[FrankWolfeIteration], None]
+
+
 def frank_wolfe(
     graph: nx.MultiDiGraph,
     od_pairs: list[ODPair],
@@ -88,44 +60,43 @@ def frank_wolfe(
     relative_gap_tolerance: float = 1e-6,
     max_iterations: int = 100,
     line_search_tolerance: float = 1e-10,
+    progress_callback: ProgressCallback | None = None,
 ) -> FrankWolfeResult:
     """
     Calcula uma aproximação do equilíbrio do usuário.
 
-    O método resolve a formulação de Beckmann por meio do algoritmo
-    de Frank-Wolfe.
+    O método minimiza a formulação de Beckmann utilizando
+    o algoritmo de Frank-Wolfe.
 
     Em cada iteração:
 
-    1. os tempos das arestas são atualizados;
-    2. calcula-se a lacuna relativa;
-    3. executa-se uma atribuição All-or-Nothing;
-    4. calcula-se a direção entre o fluxo atual e o fluxo auxiliar;
-    5. realiza-se uma busca pelo melhor tamanho de passo;
-    6. os fluxos são atualizados.
+    1. atualiza os tempos das arestas;
+    2. calcula as métricas do estado atual;
+    3. verifica a convergência;
+    4. executa uma atribuição All-or-Nothing;
+    5. calcula a direção de busca;
+    6. encontra o tamanho do passo;
+    7. atualiza os fluxos.
 
     Parameters
     ----------
     graph:
-        Rede direcionada com funções de custo em todas as arestas.
+        Rede direcionada contendo uma função de custo em cada aresta.
     od_pairs:
         Demandas origem-destino.
     relative_gap_tolerance:
-        Tolerância usada como critério de convergência.
+        Tolerância máxima da lacuna relativa.
     max_iterations:
-        Número máximo de iterações.
+        Número máximo de atualizações do vetor de fluxo.
     line_search_tolerance:
-        Tolerância da busca numérica do tamanho de passo.
+        Tolerância numérica da busca do tamanho do passo.
+    progress_callback:
+        Função opcional chamada após o registro de cada iteração.
 
     Returns
     -------
     FrankWolfeResult
-        Fluxos finais, métricas e histórico de convergência.
-
-    Raises
-    ------
-    ValueError
-        Caso os parâmetros sejam inválidos ou não existam pares OD.
+        Resultado final, fluxos e histórico do algoritmo.
     """
     _validate_parameters(
         od_pairs=od_pairs,
@@ -134,11 +105,6 @@ def frank_wolfe(
         line_search_tolerance=line_search_tolerance,
     )
 
-    # O Frank-Wolfe precisa começar com uma solução viável.
-    #
-    # Inicialmente, todos os fluxos são zerados e os tempos são
-    # calculados em fluxo livre. Em seguida, uma atribuição
-    # All-or-Nothing produz o primeiro vetor de fluxos viável.
     zero_flows = create_zero_flows(graph)
 
     update_travel_times(
@@ -153,39 +119,38 @@ def frank_wolfe(
 
     history: list[FrankWolfeIteration] = []
 
-    for iteration in range(max_iterations + 1):
+    for iteration in range(max_iterations):
         update_travel_times(
             graph,
             current_flows,
         )
 
-        current_gap = relative_gap(
-            graph,
-            current_flows,
-            od_pairs,
+        current_metrics = _calculate_iteration_metrics(
+            graph=graph,
+            od_pairs=od_pairs,
+            flows=current_flows,
         )
 
-        current_tstt = total_system_travel_time(
-            graph,
-            current_flows,
-        )
+        if (
+            current_metrics.relative_gap
+            <= relative_gap_tolerance
+        ):
+            final_iteration = FrankWolfeIteration(
+                iteration=iteration,
+                relative_gap=current_metrics.relative_gap,
+                step_size=0.0,
+                beckmann_objective=(
+                    current_metrics.beckmann_objective
+                ),
+                total_system_travel_time=(
+                    current_metrics.total_system_travel_time
+                ),
+            )
 
-        current_objective = beckmann_objective(
-            graph,
-            current_flows,
-        )
-
-        # Se a lacuna já estiver dentro da tolerância, não é
-        # necessário realizar uma nova atualização.
-        if current_gap <= relative_gap_tolerance:
-            history.append(
-                FrankWolfeIteration(
-                    iteration=iteration,
-                    relative_gap=current_gap,
-                    step_size=0.0,
-                    beckmann_objective=current_objective,
-                    total_system_travel_time=current_tstt,
-                )
+            _record_iteration(
+                history=history,
+                item=final_iteration,
+                progress_callback=progress_callback,
             )
 
             return _build_result(
@@ -197,8 +162,6 @@ def frank_wolfe(
                 history=history,
             )
 
-        # O vetor auxiliar representa o fluxo que seria obtido
-        # caso toda demanda escolhesse agora o menor caminho.
         auxiliary_flows = all_or_nothing_assignment(
             graph,
             od_pairs,
@@ -216,14 +179,22 @@ def frank_wolfe(
             tolerance=line_search_tolerance,
         )
 
-        history.append(
-            FrankWolfeIteration(
-                iteration=iteration,
-                relative_gap=current_gap,
-                step_size=step_size,
-                beckmann_objective=current_objective,
-                total_system_travel_time=current_tstt,
-            )
+        iteration_result = FrankWolfeIteration(
+            iteration=iteration,
+            relative_gap=current_metrics.relative_gap,
+            step_size=step_size,
+            beckmann_objective=(
+                current_metrics.beckmann_objective
+            ),
+            total_system_travel_time=(
+                current_metrics.total_system_travel_time
+            ),
+        )
+
+        _record_iteration(
+            history=history,
+            item=iteration_result,
+            progress_callback=progress_callback,
         )
 
         current_flows = _update_flows(
@@ -232,19 +203,100 @@ def frank_wolfe(
             step_size=step_size,
         )
 
+    # O laço terminou após max_iterations atualizações.
+    # Agora registramos o estado realmente final.
     update_travel_times(
         graph,
         current_flows,
+    )
+
+    final_metrics = _calculate_iteration_metrics(
+        graph=graph,
+        od_pairs=od_pairs,
+        flows=current_flows,
+    )
+
+    final_iteration = FrankWolfeIteration(
+        iteration=max_iterations,
+        relative_gap=final_metrics.relative_gap,
+        step_size=0.0,
+        beckmann_objective=(
+            final_metrics.beckmann_objective
+        ),
+        total_system_travel_time=(
+            final_metrics.total_system_travel_time
+        ),
+    )
+
+    _record_iteration(
+        history=history,
+        item=final_iteration,
+        progress_callback=progress_callback,
+    )
+
+    converged = (
+        final_metrics.relative_gap
+        <= relative_gap_tolerance
     )
 
     return _build_result(
         graph=graph,
         od_pairs=od_pairs,
         flows=current_flows,
-        converged=False,
+        converged=converged,
         iterations=max_iterations,
         history=history,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _IterationMetrics:
+    relative_gap: float
+    beckmann_objective: float
+    total_system_travel_time: float
+
+
+def _calculate_iteration_metrics(
+    *,
+    graph: nx.MultiDiGraph,
+    od_pairs: list[ODPair],
+    flows: EdgeFlowMap,
+) -> _IterationMetrics:
+    """
+    Calcula as métricas usadas durante uma iteração.
+    """
+    return _IterationMetrics(
+        relative_gap=relative_gap(
+            graph,
+            flows,
+            od_pairs,
+        ),
+        beckmann_objective=beckmann_objective(
+            graph,
+            flows,
+        ),
+        total_system_travel_time=(
+            total_system_travel_time(
+                graph,
+                flows,
+            )
+        ),
+    )
+
+
+def _record_iteration(
+    *,
+    history: list[FrankWolfeIteration],
+    item: FrankWolfeIteration,
+    progress_callback: ProgressCallback | None,
+) -> None:
+    """
+    Registra uma iteração e chama o callback de progresso.
+    """
+    history.append(item)
+
+    if progress_callback is not None:
+        progress_callback(item)
 
 
 def _calculate_direction(
@@ -253,16 +305,9 @@ def _calculate_direction(
     auxiliary_flows: EdgeFlowMap,
 ) -> EdgeFlowMap:
     """
-    Calcula a direção de busca do Frank-Wolfe.
-
-    A direção é dada por:
+    Calcula a direção de busca:
 
         d = y - x
-
-    em que:
-
-    - x é o fluxo atual;
-    - y é o fluxo auxiliar do All-or-Nothing.
     """
     if current_flows.keys() != auxiliary_flows.keys():
         raise ValueError(
@@ -271,7 +316,10 @@ def _calculate_direction(
         )
 
     return {
-        edge: auxiliary_flows[edge] - current_flows[edge]
+        edge: (
+            auxiliary_flows[edge]
+            - current_flows[edge]
+        )
         for edge in current_flows
     }
 
@@ -284,9 +332,9 @@ def _find_step_size(
     tolerance: float,
 ) -> float:
     """
-    Encontra o tamanho de passo que minimiza o objetivo de Beckmann.
+    Encontra o passo que minimiza o objetivo de Beckmann.
 
-    São avaliados fluxos da forma:
+    São testados fluxos da forma:
 
         x(lambda) = x + lambda * d
 
@@ -295,7 +343,9 @@ def _find_step_size(
         0 <= lambda <= 1
     """
 
-    def objective_at_step(step_size: float) -> float:
+    def objective_at_step(
+        step_size: float,
+    ) -> float:
         objective = 0.0
 
         for edge, current_flow in current_flows.items():
@@ -304,14 +354,16 @@ def _find_step_size(
                 + step_size * direction[edge]
             )
 
-            # Pequenos valores negativos podem aparecer por causa
-            # da precisão de ponto flutuante.
-            if candidate_flow < 0.0 and abs(candidate_flow) < 1e-10:
+            if (
+                candidate_flow < 0.0
+                and abs(candidate_flow) < 1e-10
+            ):
                 candidate_flow = 0.0
 
             if candidate_flow < 0.0:
                 raise ValueError(
-                    f"O passo gerou fluxo negativo na aresta {edge}."
+                    "A busca de passo gerou fluxo negativo "
+                    f"na aresta {edge}."
                 )
 
             edge_data = graph.get_edge_data(
@@ -351,12 +403,9 @@ def _find_step_size(
             f"{result.message}"
         )
 
-    step_size = float(result.x)
-
-    # Proteção contra pequenos erros numéricos nos limites.
     return min(
         1.0,
-        max(0.0, step_size),
+        max(0.0, float(result.x)),
     )
 
 
@@ -367,7 +416,7 @@ def _update_flows(
     step_size: float,
 ) -> EdgeFlowMap:
     """
-    Atualiza os fluxos segundo a regra do Frank-Wolfe.
+    Atualiza os fluxos:
 
         x_novo = x_atual + lambda * direção
     """
@@ -379,12 +428,16 @@ def _update_flows(
             + step_size * direction[edge]
         )
 
-        if updated_flow < 0.0 and abs(updated_flow) < 1e-10:
+        if (
+            updated_flow < 0.0
+            and abs(updated_flow) < 1e-10
+        ):
             updated_flow = 0.0
 
         if updated_flow < 0.0:
             raise ValueError(
-                f"A atualização gerou fluxo negativo em {edge}."
+                "A atualização gerou fluxo negativo "
+                f"na aresta {edge}."
             )
 
         updated_flows[edge] = updated_flow
@@ -402,31 +455,9 @@ def _build_result(
     history: list[FrankWolfeIteration],
 ) -> FrankWolfeResult:
     """
-    Calcula e reúne as métricas finais do solver.
+    Reúne os fluxos e as métricas finais.
     """
     update_travel_times(
-        graph,
-        flows,
-    )
-
-    final_gap = relative_gap(
-        graph,
-        flows,
-        od_pairs,
-    )
-
-    final_tstt = total_system_travel_time(
-        graph,
-        flows,
-    )
-
-    final_average = average_travel_time(
-        graph,
-        flows,
-        od_pairs,
-    )
-
-    final_objective = beckmann_objective(
         graph,
         flows,
     )
@@ -435,10 +466,26 @@ def _build_result(
         flows=flows.copy(),
         converged=converged,
         iterations=iterations,
-        relative_gap=final_gap,
-        total_system_travel_time=final_tstt,
-        average_travel_time=final_average,
-        beckmann_objective=final_objective,
+        relative_gap=relative_gap(
+            graph,
+            flows,
+            od_pairs,
+        ),
+        total_system_travel_time=(
+            total_system_travel_time(
+                graph,
+                flows,
+            )
+        ),
+        average_travel_time=average_travel_time(
+            graph,
+            flows,
+            od_pairs,
+        ),
+        beckmann_objective=beckmann_objective(
+            graph,
+            flows,
+        ),
         history=history.copy(),
     )
 
@@ -451,7 +498,7 @@ def _validate_parameters(
     line_search_tolerance: float,
 ) -> None:
     """
-    Valida os parâmetros principais do solver.
+    Valida os parâmetros do solver.
     """
     if not od_pairs:
         raise ValueError(

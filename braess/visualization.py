@@ -19,15 +19,18 @@ def plot_convergence(
     output_path: str | Path,
     *,
     title: str = "Convergência do algoritmo de Frank-Wolfe",
+    tolerance: float | None = None,
 ) -> None:
     """
-    Gera um gráfico da lacuna relativa ao longo das iterações.
+    Gera o gráfico da lacuna relativa por iteração.
 
-    O eixo vertical utiliza escala logarítmica para facilitar a
-    visualização da aproximação da lacuna relativa a zero.
+    O eixo vertical utiliza escala logarítmica.
     """
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     iterations = [
         item.iteration
@@ -39,26 +42,45 @@ def plot_convergence(
         for item in result.history
     ]
 
-    figure, axis = plt.subplots(figsize=(9, 5))
+    figure, axis = plt.subplots(
+        figsize=(10, 5.5)
+    )
+
+    figure.patch.set_facecolor("white")
+    axis.set_facecolor("white")
 
     axis.plot(
         iterations,
         gaps,
-        marker="o",
-        markersize=3,
+        linewidth=1.2,
     )
+
+    if tolerance is not None:
+        axis.axhline(
+            y=tolerance,
+            linestyle="--",
+            linewidth=1.0,
+            label=f"Tolerância: {tolerance:.0e}",
+        )
+
+        axis.legend()
 
     axis.set_yscale("log")
     axis.set_xlabel("Iteração")
     axis.set_ylabel("Lacuna relativa")
     axis.set_title(title)
-    axis.grid(True, alpha=0.3)
+    axis.grid(
+        True,
+        alpha=0.25,
+    )
 
     figure.tight_layout()
+
     figure.savefig(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        facecolor="white",
     )
 
     plt.close(figure)
@@ -72,12 +94,13 @@ def plot_synthetic_flows(
     title: str,
 ) -> None:
     """
-    Desenha a rede sintética e exibe o fluxo e o tempo das arestas.
-
-    A espessura das arestas cresce conforme o fluxo atribuído.
+    Desenha a rede sintética com fluxo e tempo por aresta.
     """
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     positions = {
         "O": (0.0, 0.5),
@@ -86,13 +109,16 @@ def plot_synthetic_flows(
         "D": (2.0, 0.5),
     }
 
-    max_flow = max(
+    maximum_flow = max(
         flows.values(),
         default=0.0,
     )
 
     edge_widths: list[float] = []
-    edge_labels: dict[tuple[Any, Any, Any], str] = {}
+    edge_labels: dict[
+        tuple[Any, Any, Any],
+        str,
+    ] = {}
 
     for u, v, key, data in graph.edges(
         keys=True,
@@ -101,14 +127,14 @@ def plot_synthetic_flows(
         edge = EdgeId(u, v, key)
         flow = flows.get(edge, 0.0)
 
-        width = _scale_width(
-            value=flow,
-            maximum=max_flow,
-            minimum_width=1.0,
-            maximum_width=8.0,
+        edge_widths.append(
+            _scale_width(
+                value=flow,
+                maximum=maximum_flow,
+                minimum_width=1.0,
+                maximum_width=8.0,
+            )
         )
-
-        edge_widths.append(width)
 
         travel_time = float(
             data.get("travel_time", 0.0)
@@ -119,7 +145,12 @@ def plot_synthetic_flows(
             f"t={travel_time:.2f}"
         )
 
-    figure, axis = plt.subplots(figsize=(10, 6))
+    figure, axis = plt.subplots(
+        figsize=(10, 6)
+    )
+
+    figure.patch.set_facecolor("white")
+    axis.set_facecolor("white")
 
     nx.draw_networkx_nodes(
         graph,
@@ -159,10 +190,12 @@ def plot_synthetic_flows(
     axis.set_axis_off()
 
     figure.tight_layout()
+
     figure.savefig(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        facecolor="white",
     )
 
     plt.close(figure)
@@ -174,63 +207,64 @@ def plot_urban_flows(
     output_path: str | Path,
     *,
     title: str = "Fluxos no equilíbrio da rede urbana",
+    minimum_active_flow: float = 1e-8,
 ) -> None:
     """
-    Gera um mapa da rede urbana após a atribuição de tráfego.
+    Gera o mapa de fluxos da rede urbana.
 
-    Representação visual:
+    Representação:
 
-    - espessura: fluxo absoluto da aresta;
-    - cor: relação fluxo/capacidade;
-    - arestas sem fluxo: linhas finas.
-
-    Espera-se que o grafo possua coordenadas geográficas nos nós,
-    como ocorre nos grafos obtidos pelo OSMnx.
+    - rede completa: linhas finas e discretas;
+    - arestas com fluxo: linhas destacadas;
+    - espessura: fluxo absoluto;
+    - cor: relação fluxo/capacidade.
     """
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    ordered_edges = list(
-        graph.edges(keys=True, data=True)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
-    edge_flows: list[float] = []
-    volume_capacity_ratios: list[float] = []
+    active_edges: list[
+        tuple[Any, Any, Any, dict[str, Any]]
+    ] = []
 
-    for u, v, key, data in ordered_edges:
+    active_flows: list[float] = []
+    active_ratios: list[float] = []
+
+    for u, v, key, data in graph.edges(
+        keys=True,
+        data=True,
+    ):
         edge = EdgeId(u, v, key)
         flow = flows.get(edge, 0.0)
 
-        capacity = float(
-            data.get("capacity", 0.0)
+        if flow <= minimum_active_flow:
+            continue
+
+        capacity = _numeric_value(
+            data.get("capacity")
         )
 
-        edge_flows.append(flow)
+        ratio = (
+            flow / capacity
+            if capacity > 0.0
+            else 0.0
+        )
 
-        if capacity > 0.0:
-            ratio = flow / capacity
-        else:
-            ratio = 0.0
+        active_edges.append(
+            (u, v, key, data)
+        )
+        active_flows.append(flow)
+        active_ratios.append(ratio)
 
-        volume_capacity_ratios.append(ratio)
-
-    max_flow = max(
-        edge_flows,
-        default=0.0,
+    maximum_flow = max(
+        active_flows,
+        default=1.0,
     )
 
-    edge_widths = [
-        _scale_width(
-            value=flow,
-            maximum=max_flow,
-            minimum_width=0.3,
-            maximum_width=5.0,
-        )
-        for flow in edge_flows
-    ]
-
     maximum_ratio = max(
-        volume_capacity_ratios,
+        active_ratios,
         default=1.0,
     )
 
@@ -241,20 +275,52 @@ def plot_urban_flows(
 
     colormap = colormaps["viridis"]
 
-    edge_colors = [
-        colormap(normalization(ratio))
-        for ratio in volume_capacity_ratios
+    active_widths = [
+        _scale_width(
+            value=flow,
+            maximum=maximum_flow,
+            minimum_width=1.0,
+            maximum_width=6.0,
+        )
+        for flow in active_flows
+    ]
+
+    active_colors = [
+        colormap(
+            normalization(ratio)
+        )
+        for ratio in active_ratios
     ]
 
     figure, axis = ox.plot_graph(
         graph,
         node_size=0,
-        edge_color=edge_colors,
-        edge_linewidth=edge_widths,
+        edge_color="#d0d0d0",
+        edge_linewidth=0.35,
         bgcolor="white",
         show=False,
         close=False,
     )
+
+    figure.patch.set_facecolor("white")
+    axis.set_facecolor("white")
+
+    if active_edges:
+        active_graph = _build_active_subgraph(
+            graph=graph,
+            active_edges=active_edges,
+        )
+
+        ox.plot_graph(
+            active_graph,
+            ax=axis,
+            node_size=0,
+            edge_color=active_colors,
+            edge_linewidth=active_widths,
+            bgcolor="white",
+            show=False,
+            close=False,
+        )
 
     axis.set_title(title)
 
@@ -277,6 +343,7 @@ def plot_urban_flows(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        facecolor="white",
     )
 
     plt.close(figure)
@@ -291,10 +358,13 @@ def plot_flow_comparison(
     modified_label: str = "Rede modificada",
 ) -> None:
     """
-    Compara visualmente os tempos médios de dois cenários.
+    Compara o tempo médio de dois cenários.
     """
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     labels = [
         baseline_label,
@@ -306,7 +376,12 @@ def plot_flow_comparison(
         modified_result.average_travel_time,
     ]
 
-    figure, axis = plt.subplots(figsize=(8, 5))
+    figure, axis = plt.subplots(
+        figsize=(8, 5)
+    )
+
+    figure.patch.set_facecolor("white")
+    axis.set_facecolor("white")
 
     bars = axis.bar(
         labels,
@@ -316,9 +391,13 @@ def plot_flow_comparison(
     axis.set_ylabel("Tempo médio de viagem")
     axis.set_title("Comparação entre cenários")
 
-    for bar, value in zip(bars, values):
+    for bar, value in zip(
+        bars,
+        values,
+    ):
         axis.text(
-            bar.get_x() + bar.get_width() / 2,
+            bar.get_x()
+            + bar.get_width() / 2,
             bar.get_height(),
             f"{value:.2f}",
             ha="center",
@@ -326,13 +405,54 @@ def plot_flow_comparison(
         )
 
     figure.tight_layout()
+
     figure.savefig(
         output_path,
         dpi=300,
         bbox_inches="tight",
+        facecolor="white",
     )
 
     plt.close(figure)
+
+
+def _build_active_subgraph(
+    *,
+    graph: nx.MultiDiGraph,
+    active_edges: list[
+        tuple[Any, Any, Any, dict[str, Any]]
+    ],
+) -> nx.MultiDiGraph:
+    """
+    Cria um subgrafo contendo apenas arestas com fluxo.
+    """
+    active_graph = nx.MultiDiGraph()
+
+    active_graph.graph.update(
+        graph.graph
+    )
+
+    active_nodes: set[Any] = set()
+
+    for u, v, _, _ in active_edges:
+        active_nodes.add(u)
+        active_nodes.add(v)
+
+    for node in active_nodes:
+        active_graph.add_node(
+            node,
+            **graph.nodes[node],
+        )
+
+    for u, v, key, data in active_edges:
+        active_graph.add_edge(
+            u,
+            v,
+            key=key,
+            **data,
+        )
+
+    return active_graph
 
 
 def _scale_width(
@@ -343,10 +463,7 @@ def _scale_width(
     maximum_width: float,
 ) -> float:
     """
-    Converte um valor de fluxo em uma espessura visual.
-
-    Utiliza raiz quadrada para evitar que poucas arestas com fluxo
-    muito alto escondam todas as demais.
+    Converte fluxo em espessura visual.
     """
     if value < 0.0:
         raise ValueError(
@@ -356,10 +473,30 @@ def _scale_width(
     if maximum <= 0.0:
         return minimum_width
 
-    normalized = math.sqrt(value / maximum)
+    normalized = math.sqrt(
+        value / maximum
+    )
 
     return (
         minimum_width
         + normalized
-        * (maximum_width - minimum_width)
+        * (
+            maximum_width
+            - minimum_width
+        )
     )
+
+
+def _numeric_value(
+    value: object,
+) -> float:
+    """
+    Converte um valor numérico válido para float.
+    """
+    if isinstance(value, bool):
+        return 0.0
+
+    if isinstance(value, int | float):
+        return float(value)
+
+    return 0.0
