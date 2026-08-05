@@ -1,0 +1,15 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Cache
+cache/
+**/cache/
+
+# Saídas geradas
+outputs/
