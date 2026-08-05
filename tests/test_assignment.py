@@ -87,7 +87,32 @@ def test_all_or_nothing_accumulates_multiple_od_pairs() -> None:
         ],
     )
 
-    assert sum(auxiliary_flows.values()) > 0.0
+    # O par O -> D usa:
+    #
+    # O -> A -> B -> D
+    #
+    # Portanto, 3000 veículos passam por O -> A.
+    assert auxiliary_flows[
+        EdgeId("O", "A", 0)
+    ] == pytest.approx(3000.0)
+
+    # A aresta A -> B recebe:
+    #
+    # 3000 veículos do par O -> D
+    #  500 veículos do par A -> D
+    #
+    # Total: 3500 veículos.
+    assert auxiliary_flows[
+        EdgeId("A", "B", 0)
+    ] == pytest.approx(3500.0)
+
+    # Os dois pares terminam usando B -> D.
+    assert auxiliary_flows[
+        EdgeId("B", "D", 0)
+    ] == pytest.approx(3500.0)
+
+    # A ligação direta A -> D custa 45, enquanto A -> B -> D
+    # custa zero no estado inicial. Portanto, ela não recebe fluxo.
     assert auxiliary_flows[
         EdgeId("A", "D", 0)
-    ] >= 500.0
+    ] == pytest.approx(0.0)
