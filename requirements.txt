@@ -1,0 +1,5 @@
+networkx
+osmnx
+numpy
+scipy
+pytest

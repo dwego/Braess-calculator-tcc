@@ -1,6 +1,17 @@
-/.venv
-/maps/*.png
-/maps/*.gpkg
-/maps/*.graphml
-/maps/*.osms
 
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+.DS_Store
+
+# Cache
+cache/
+**/cache/
+
+# Saídas geradas
+outputs/
