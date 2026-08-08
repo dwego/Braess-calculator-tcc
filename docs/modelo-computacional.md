@@ -1,11 +1,5 @@
 # Modelo computacional do Paradoxo de Braess
 
-> Documento técnico interno para orientar a escrita do Capítulo 2 e a apresentação do software.
->
-> Este arquivo descreve **como o software funciona, por que cada decisão foi tomada e quais alternativas foram descartadas**.
->
-> **Não contém resultados experimentais da pesquisa.** Resultados, comparação entre cenários, possíveis ocorrências do paradoxo e interpretação dos dados devem permanecer no Capítulo 3.
-
 ---
 
 # 1. Objetivo do software
@@ -99,9 +93,7 @@ Isso facilita:
 
 A rede viária é representada como:
 
-$$
-G = (V,E)
-$$
+$$G = (V,E)$$
 
 em que:
 
@@ -238,9 +230,7 @@ OD significa **Origin-Destination**.
 
 Matematicamente, a demanda entre uma origem $o$ e um destino $d$ pode ser representada por:
 
-$$
-q_{od}
-$$
+$$q_{od}$$
 
 O solver pode receber vários pares OD, não apenas um.
 
@@ -290,9 +280,7 @@ Essa etapa reduz problemas causados por partes isoladas ou por recortes da rede 
 
 Cada aresta possui um tempo de percurso em condições de fluxo livre:
 
-$$
-t_e^0
-$$
+$$t_e^0$$
 
 No código:
 
@@ -302,9 +290,7 @@ free_flow_time
 
 Conceitualmente:
 
-$$
-t_e^0 = \frac{l_e}{v_e}
-$$
+$$t_e^0 = \frac{l_e}{v_e}$$
 
 em que:
 
@@ -420,15 +406,11 @@ Essa decisão deve ser registrada como simplificação metodológica.
 
 A função de congestionamento precisa da capacidade:
 
-$$
-c_e
-$$
+$$c_e$$
 
 O modelo atual estima:
 
-$$
-c_e = c_{faixa} \cdot n_{faixas}
-$$
+$$c_e = c_{faixa} \cdot n_{faixas}$$
 
 em que:
 
@@ -450,9 +432,7 @@ para manter rastreabilidade.
 
 O tempo de uma rua depende do fluxo:
 
-$$
-t_e = t_e(x_e)
-$$
+$$t_e = t_e(x_e)$$
 
 O projeto implementa duas funções:
 
@@ -465,9 +445,7 @@ O projeto implementa duas funções:
 
 A função linear é:
 
-$$
-t_e(x_e) = \alpha_e + \beta_e x_e
-$$
+$$t_e(x_e) = \alpha_e + \beta_e x_e$$
 
 Ela é usada apenas na rede sintética de validação.
 
@@ -481,18 +459,7 @@ Não é o principal modelo da rede urbana.
 
 Para a aplicação urbana é usada:
 
-$$
-t_e(x_e)
-=
-t_e^0
-\left[
-1 +
-\alpha
-\left(
-\frac{x_e}{c_e}
-\right)^\beta
-\right]
-$$
+$$t_e(x_e) = t_e^0 \left[ 1 + \alpha \left( \frac{x_e}{c_e} \right)^\beta \right]$$
 
 em que:
 
@@ -509,9 +476,7 @@ A função linear é adequada ao exemplo teórico por ser simples e permitir int
 
 Na rede urbana é desejável considerar explicitamente a razão:
 
-$$
-\frac{x}{c}
-$$
+$$\frac{x}{c}$$
 
 entre fluxo e capacidade.
 
@@ -621,14 +586,7 @@ Isso permite que o Frank-Wolfe não dependa diretamente da BPR ou da função li
 
 O Frank-Wolfe é aplicado à formulação de Beckmann:
 
-$$
-Z(x)
-=
-\sum_{e\in E}
-\int_0^{x_e}
-t_e(w)
-\,dw
-$$
+$$Z(x) = \sum_{e\in E} \int_0^{x_e} t_e(w) \,dw$$
 
 Por isso o solver precisa da integral da função de custo.
 
@@ -723,9 +681,7 @@ Seja $x$ o vetor de fluxo atual e $y$ o vetor produzido pelo All-or-Nothing.
 
 A direção é:
 
-$$
-d = y - x
-$$
+$$d = y - x$$
 
 ---
 
@@ -733,22 +689,11 @@ $$
 
 A atualização é:
 
-$$
-x^{(k+1)}
-=
-x^{(k)}
-+
-\lambda_k
-\left(
-y^{(k)} - x^{(k)}
-\right)
-$$
+$$x^{(k+1)} = x^{(k)} + \lambda_k \left( y^{(k)} - x^{(k)} \right)$$
 
 com:
 
-$$
-0 \leq \lambda_k \leq 1
-$$
+$$0 \leq \lambda_k \leq 1$$
 
 ---
 
@@ -780,12 +725,7 @@ Essa escolha evita usar um passo arbitrário.
 
 O Total System Travel Time é:
 
-$$
-TSTT
-=
-\sum_{e\in E}
-x_e t_e(x_e)
-$$
+$$TSTT = \sum_{e\in E} x_e t_e(x_e)$$
 
 Ele representa o custo agregado da rede.
 
@@ -795,15 +735,7 @@ Ele representa o custo agregado da rede.
 
 O tempo médio é:
 
-$$
-\bar{T}
-=
-\frac{
-TSTT
-}{
-\sum q_{od}
-}
-$$
+$$\bar{T} = \frac{ TSTT }{ \sum q_{od} }$$
 
 ---
 
@@ -811,12 +743,7 @@ $$
 
 O Shortest Path Total Travel Time é:
 
-$$
-SPTT
-=
-\sum_{(o,d)}
-q_{od}\pi_{od}
-$$
+$$SPTT = \sum_{(o,d)} q_{od}\pi_{od}$$
 
 em que $\pi_{od}$ é o custo do menor caminho atual.
 
@@ -826,15 +753,7 @@ em que $\pi_{od}$ é o custo do menor caminho atual.
 
 O código utiliza:
 
-$$
-RG
-=
-\frac{
-TSTT - SPTT
-}{
-TSTT
-}
-$$
+$$RG = \frac{ TSTT - SPTT }{ TSTT }$$
 
 para medir proximidade do equilíbrio.
 
@@ -846,9 +765,7 @@ Quanto menor o `Relative Gap`, mais próxima está a solução.
 
 O solver para quando:
 
-$$
-RG \leq \varepsilon
-$$
+$$RG \leq \varepsilon$$
 
 onde $\varepsilon$ é a tolerância definida.
 
@@ -1013,27 +930,11 @@ Alta utilização não significa Paradoxo de Braess; é apenas um filtro computa
 
 A melhoria absoluta é:
 
-$$
-\Delta T
-=
-TSTT_{original}
--
-TSTT_{modificado}
-$$
+$$\Delta T = TSTT_{original} - TSTT_{modificado}$$
 
 A melhoria relativa é:
 
-$$
-I
-=
-\frac{
-TSTT_{original}
--
-TSTT_{modificado}
-}{
-TSTT_{original}
-}
-$$
+$$I = \frac{ TSTT_{original} - TSTT_{modificado} }{ TSTT_{original} }$$
 
 O detector ainda exige convergência e conectividade.
 
@@ -1176,41 +1077,3 @@ outputs.py
 removal.py
     cenários de alteração da rede
 ```
-
----
-
-# 55. Explicação curta para apresentação
-
-> A malha viária é obtida do OpenStreetMap e representada como um MultiDiGraph, preservando sentidos e vias paralelas. Cada segmento recebe um tempo de fluxo livre, uma capacidade e uma função BPR que relaciona fluxo e tempo. A demanda é representada por pares origem-destino. Em cada iteração, Dijkstra encontra os menores caminhos atuais e uma atribuição All-or-Nothing gera um fluxo auxiliar. O Frank-Wolfe combina esse fluxo com o estado atual usando um passo calculado por line search até que o Relative Gap fique abaixo da tolerância, aproximando o equilíbrio de Wardrop. Depois, conexões podem ser removidas e o equilíbrio é recalculado para comparar o custo da rede.
-
----
-
-# 56. Referências necessárias para o Capítulo 2
-
-Conferir se estão na bibliografia:
-
-- OpenStreetMap;
-- OSMnx;
-- NetworkX;
-- Dijkstra;
-- Wardrop;
-- Beckmann;
-- Frank e Wolfe;
-- função BPR;
-- artigo dos parâmetros BPR por categoria;
-- referência da capacidade por faixa.
-
----
-
-# 57. O que não entra neste documento
-
-Não colocar aqui:
-
-- resultados numéricos dos experimentos;
-- ruas identificadas;
-- quantidade de candidatas;
-- gráficos finais de resultados;
-- análise de sensibilidade dos resultados;
-- conclusão sobre existência do paradoxo em São José dos Campos.
-
-Esses elementos pertencem ao Capítulo 3.
