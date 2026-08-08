@@ -7,7 +7,9 @@ from typing import Any
 
 import networkx as nx
 
-from braess.frank_wolfe import FrankWolfeResult
+from braess.frank_wolfe import (
+    FrankWolfeResult,
+)
 from braess.models import EdgeId
 
 
@@ -17,10 +19,19 @@ def save_edge_results(
     output_path: str | Path,
 ) -> None:
     """
-    Salva os resultados finais de cada aresta em CSV.
+    Salva em CSV os dados e resultados de cada aresta.
+
+    Além dos fluxos e tempos, são armazenados os parâmetros BPR
+    utilizados em cada trecho para garantir rastreabilidade.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(
+        output_path
+    )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     fieldnames = [
         "u",
@@ -28,10 +39,14 @@ def save_edge_results(
         "key",
         "name",
         "highway",
+        "bpr_link_type",
+        "bpr_alpha",
+        "bpr_beta",
         "length",
         "lanes",
         "free_flow_time",
         "capacity",
+        "capacity_source",
         "flow",
         "travel_time",
         "volume_capacity_ratio",
@@ -53,8 +68,16 @@ def save_edge_results(
             keys=True,
             data=True,
         ):
-            edge = EdgeId(u, v, key)
-            flow = result.flows.get(edge, 0.0)
+            edge = EdgeId(
+                u,
+                v,
+                key,
+            )
+
+            flow = result.flows.get(
+                edge,
+                0.0,
+            )
 
             capacity = _as_float(
                 data.get("capacity")
@@ -71,27 +94,76 @@ def save_edge_results(
                     "u": u,
                     "v": v,
                     "key": key,
-                    "name": data.get("name", ""),
-                    "highway": data.get(
-                        "highway_normalized",
-                        data.get("highway", ""),
-                    ),
-                    "length": data.get("length", ""),
-                    "lanes": data.get(
-                        "lanes_normalized",
-                        data.get("lanes", ""),
-                    ),
-                    "free_flow_time": data.get(
-                        "free_flow_time",
+
+                    "name": data.get(
+                        "name",
                         "",
                     ),
+
+                    "highway": data.get(
+                        "highway_normalized",
+                        data.get(
+                            "highway",
+                            "",
+                        ),
+                    ),
+
+                    "bpr_link_type": (
+                        data.get(
+                            "bpr_link_type",
+                            "",
+                        )
+                    ),
+
+                    "bpr_alpha": data.get(
+                        "bpr_alpha",
+                        "",
+                    ),
+
+                    "bpr_beta": data.get(
+                        "bpr_beta",
+                        "",
+                    ),
+
+                    "length": data.get(
+                        "length",
+                        "",
+                    ),
+
+                    "lanes": data.get(
+                        "lanes_normalized",
+                        data.get(
+                            "lanes",
+                            "",
+                        ),
+                    ),
+
+                    "free_flow_time": (
+                        data.get(
+                            "free_flow_time",
+                            "",
+                        )
+                    ),
+
                     "capacity": capacity,
+
+                    "capacity_source": (
+                        data.get(
+                            "capacity_source",
+                            "",
+                        )
+                    ),
+
                     "flow": flow,
+
                     "travel_time": data.get(
                         "travel_time",
                         "",
                     ),
-                    "volume_capacity_ratio": ratio,
+
+                    "volume_capacity_ratio": (
+                        ratio
+                    ),
                 }
             )
 
@@ -103,15 +175,23 @@ def save_iteration_history(
     """
     Salva o histórico de convergência do Frank-Wolfe.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(
+        output_path
+    )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     with output_path.open(
         "w",
         newline="",
         encoding="utf-8",
     ) as file:
-        writer = csv.writer(file)
+        writer = csv.writer(
+            file
+        )
 
         writer.writerow(
             [
@@ -130,7 +210,10 @@ def save_iteration_history(
                     item.relative_gap,
                     item.step_size,
                     item.beckmann_objective,
-                    item.total_system_travel_time,
+                    (
+                        item
+                        .total_system_travel_time
+                    ),
                 ]
             )
 
@@ -139,31 +222,57 @@ def save_summary(
     result: FrankWolfeResult,
     output_path: str | Path,
     *,
-    extra: dict[str, Any] | None = None,
+    extra: dict[
+        str,
+        Any,
+    ]
+    | None = None,
 ) -> None:
     """
     Salva as principais métricas do cenário em JSON.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(
+        output_path
+    )
 
-    summary: dict[str, Any] = {
-        "converged": result.converged,
-        "iterations": result.iterations,
-        "relative_gap": result.relative_gap,
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    summary: dict[
+        str,
+        Any,
+    ] = {
+        "converged": (
+            result.converged
+        ),
+
+        "iterations": (
+            result.iterations
+        ),
+
+        "relative_gap": (
+            result.relative_gap
+        ),
+
         "total_system_travel_time": (
             result.total_system_travel_time
         ),
+
         "average_travel_time": (
             result.average_travel_time
         ),
+
         "beckmann_objective": (
             result.beckmann_objective
         ),
     }
 
     if extra:
-        summary.update(extra)
+        summary.update(
+            extra
+        )
 
     with output_path.open(
         "w",
@@ -177,11 +286,24 @@ def save_summary(
         )
 
 
-def _as_float(value: object) -> float:
-    if isinstance(value, bool):
+def _as_float(
+    value: object,
+) -> float:
+    """
+    Converte valores numéricos simples para float.
+    """
+    if isinstance(
+        value,
+        bool,
+    ):
         return 0.0
 
-    if isinstance(value, int | float):
-        return float(value)
+    if isinstance(
+        value,
+        int | float,
+    ):
+        return float(
+            value
+        )
 
     return 0.0
