@@ -258,8 +258,6 @@ def main() -> None:
             DEFAULT_CAPACITY_PER_LANE
         ),
         default_lanes=1,
-        bpr_alpha=0.15,
-        bpr_beta=4.0,
     )
 
     origin, destination = (
