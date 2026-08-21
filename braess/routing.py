@@ -15,45 +15,11 @@ def shortest_edge_path(
     weight: str = "travel_time",
 ) -> list[EdgeId]:
     """
-    Calcula o menor caminho e preserva a chave das arestas.
+    Calcula o menor caminho entre uma origem e um destino.
 
-    O NetworkX normalmente retorna uma sequência de nós:
-
-        ["O", "A", "D"]
-
-    Em um MultiDiGraph, isso não é suficiente porque podem existir várias
-    arestas entre O e A. Por isso, esta função converte a sequência de nós
-    em uma sequência de EdgeId:
-
-        [
-            EdgeId("O", "A", 0),
-            EdgeId("A", "D", 0),
-        ]
-
-    Parameters
-    ----------
-    graph:
-        Multidígrafo no qual o caminho será calculado.
-    source:
-        Nó de origem.
-    target:
-        Nó de destino.
-    weight:
-        Nome do atributo utilizado como custo.
-
-    Returns
-    -------
-    list[EdgeId]
-        Arestas que formam o menor caminho.
-
-    Raises
-    ------
-    nx.NodeNotFound
-        Caso a origem ou o destino não exista.
-    nx.NetworkXNoPath
-        Caso não exista caminho entre os nós.
-    ValueError
-        Caso uma aresta não possua peso válido.
+    A busca usa Dijkstra e o caminho de nós retornado pelo NetworkX é
+    convertido em uma sequência de EdgeId para preservar a chave das
+    arestas paralelas do MultiDiGraph.
     """
     node_path = nx.shortest_path(
         graph,
@@ -63,25 +29,57 @@ def shortest_edge_path(
         method="dijkstra",
     )
 
-    edge_path: list[EdgeId] = []
+    return _node_path_to_edge_path(
+        graph,
+        node_path,
+        weight=weight,
+    )
 
-    for u, v in zip(node_path, node_path[1:]):
-        key = _select_lowest_cost_edge_key(
+
+def shortest_edge_paths_to_target(
+    graph: nx.MultiDiGraph,
+    *,
+    target: Hashable,
+    weight: str = "travel_time",
+) -> dict[Hashable, list[EdgeId]]:
+    """
+    Calcula, com um único Dijkstra, os menores caminhos até um destino.
+
+    O grafo é visto com as arestas invertidas e o Dijkstra parte do
+    destino. Assim, uma única árvore de menores caminhos fornece a rota
+    de cada origem alcançável até ``target`` no grafo original.
+
+    Essa abordagem é útil quando vários pares OD compartilham o mesmo
+    destino, pois evita executar um Dijkstra independente para cada origem.
+    """
+    if target not in graph:
+        raise nx.NodeNotFound(
+            f"O destino {target!r} não existe no grafo."
+        )
+
+    reversed_graph = graph.reverse(copy=False)
+
+    reversed_node_paths = nx.single_source_dijkstra_path(
+        reversed_graph,
+        source=target,
+        weight=weight,
+    )
+
+    paths_to_target: dict[
+        Hashable,
+        list[EdgeId],
+    ] = {}
+
+    for source, reversed_node_path in reversed_node_paths.items():
+        node_path = list(reversed(reversed_node_path))
+
+        paths_to_target[source] = _node_path_to_edge_path(
             graph,
-            u=u,
-            v=v,
+            node_path,
             weight=weight,
         )
 
-        edge_path.append(
-            EdgeId(
-                u=u,
-                v=v,
-                key=key,
-            )
-        )
-
-    return edge_path
+    return paths_to_target
 
 
 def path_cost(
@@ -118,6 +116,36 @@ def path_cost(
         total += float(edge_weight)
 
     return total
+
+
+def _node_path_to_edge_path(
+    graph: nx.MultiDiGraph,
+    node_path: list[Hashable],
+    *,
+    weight: str,
+) -> list[EdgeId]:
+    """
+    Converte uma sequência de nós em arestas do MultiDiGraph.
+    """
+    edge_path: list[EdgeId] = []
+
+    for u, v in zip(node_path, node_path[1:]):
+        key = _select_lowest_cost_edge_key(
+            graph,
+            u=u,
+            v=v,
+            weight=weight,
+        )
+
+        edge_path.append(
+            EdgeId(
+                u=u,
+                v=v,
+                key=key,
+            )
+        )
+
+    return edge_path
 
 
 def _select_lowest_cost_edge_key(
