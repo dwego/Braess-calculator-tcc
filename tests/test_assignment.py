@@ -1,3 +1,4 @@
+import braess.assignment as assignment_module
 import pytest
 
 from braess.assignment import (
@@ -87,32 +88,61 @@ def test_all_or_nothing_accumulates_multiple_od_pairs() -> None:
         ],
     )
 
-    # O par O -> D usa:
-    #
-    # O -> A -> B -> D
-    #
-    # Portanto, 3000 veículos passam por O -> A.
     assert auxiliary_flows[
         EdgeId("O", "A", 0)
     ] == pytest.approx(3000.0)
 
-    # A aresta A -> B recebe:
-    #
-    # 3000 veículos do par O -> D
-    #  500 veículos do par A -> D
-    #
-    # Total: 3500 veículos.
     assert auxiliary_flows[
         EdgeId("A", "B", 0)
     ] == pytest.approx(3500.0)
 
-    # Os dois pares terminam usando B -> D.
     assert auxiliary_flows[
         EdgeId("B", "D", 0)
     ] == pytest.approx(3500.0)
 
-    # A ligação direta A -> D custa 45, enquanto A -> B -> D
-    # custa zero no estado inicial. Portanto, ela não recebe fluxo.
     assert auxiliary_flows[
         EdgeId("A", "D", 0)
     ] == pytest.approx(0.0)
+
+
+def test_all_or_nothing_reuses_one_dijkstra_per_destination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = build_braess_network(
+        include_connector=True,
+    )
+
+    flows = create_zero_flows(graph)
+    update_travel_times(graph, flows)
+
+    original = assignment_module.shortest_edge_paths_to_target
+    called_destinations: list[object] = []
+
+    def counting_shortest_paths(
+        graph,
+        *,
+        target,
+        weight="travel_time",
+    ):
+        called_destinations.append(target)
+        return original(
+            graph,
+            target=target,
+            weight=weight,
+        )
+
+    monkeypatch.setattr(
+        assignment_module,
+        "shortest_edge_paths_to_target",
+        counting_shortest_paths,
+    )
+
+    all_or_nothing_assignment(
+        graph,
+        [
+            ODPair("O", "D", 3000.0),
+            ODPair("A", "D", 500.0),
+        ],
+    )
+
+    assert called_destinations == ["D"]
