@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import defaultdict
+
 import networkx as nx
 
 from braess.models import EdgeFlowMap, EdgeId, ODPair
-from braess.routing import shortest_edge_path
+from braess.routing import shortest_edge_paths_to_target
 from braess.synthetic import create_zero_flows
 
 
@@ -16,48 +18,47 @@ def all_or_nothing_assignment(
     """
     Executa a atribuição All-or-Nothing.
 
-    Para cada par origem-destino:
+    Os pares OD são agrupados por destino. Para cada destino distinto,
+    executa-se um único Dijkstra no grafo invertido, produzindo os menores
+    caminhos de todas as origens alcançáveis até esse destino no grafo
+    original.
 
-    1. calcula a rota de menor custo;
-    2. atribui toda a demanda desse par à rota encontrada;
-    3. acumula os fluxos nas arestas utilizadas.
-
-    O resultado é um vetor auxiliar de fluxos, utilizado pelo
-    algoritmo de Frank-Wolfe.
-
-    Parameters
-    ----------
-    graph:
-        Rede direcionada com os custos atuais nas arestas.
-    od_pairs:
-        Demandas origem-destino.
-    weight:
-        Nome do atributo usado como peso no menor caminho.
-
-    Returns
-    -------
-    EdgeFlowMap
-        Fluxo auxiliar atribuído a cada aresta.
-
-    Raises
-    ------
-    nx.NodeNotFound
-        Caso algum nó de origem ou destino não exista.
-    nx.NetworkXNoPath
-        Caso não exista caminho para algum par OD.
+    Em seguida, toda a demanda de cada par OD é atribuída ao respectivo
+    caminho mínimo e os fluxos são acumulados nas arestas utilizadas.
     """
     auxiliary_flows = create_zero_flows(graph)
 
+    pairs_by_destination: dict[
+        object,
+        list[ODPair],
+    ] = defaultdict(list)
+
     for od_pair in od_pairs:
-        path = shortest_edge_path(
+        pairs_by_destination[
+            od_pair.destination
+        ].append(od_pair)
+
+    for destination, destination_pairs in pairs_by_destination.items():
+        paths_to_destination = shortest_edge_paths_to_target(
             graph,
-            source=od_pair.origin,
-            target=od_pair.destination,
+            target=destination,
             weight=weight,
         )
 
-        for edge in path:
-            auxiliary_flows[edge] += od_pair.demand
+        for od_pair in destination_pairs:
+            path = paths_to_destination.get(
+                od_pair.origin
+            )
+
+            if path is None:
+                raise nx.NetworkXNoPath(
+                    "Não existe caminho entre a origem "
+                    f"{od_pair.origin!r} e o destino "
+                    f"{od_pair.destination!r}."
+                )
+
+            for edge in path:
+                auxiliary_flows[edge] += od_pair.demand
 
     return auxiliary_flows
 
