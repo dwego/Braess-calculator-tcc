@@ -4,7 +4,6 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
-from matplotlib import colormaps
 from matplotlib.colors import Normalize, TwoSlopeNorm
 from matplotlib.figure import Figure
 import networkx as nx
@@ -17,7 +16,7 @@ from braess.experiment_config import load_config, select_scenarios
 from braess.experiment_maps import load_map_snapshot, prepare_inputs
 from braess.models import EdgeId
 from braess.urban_flow_plots import (
-    MAXIMUM_LINEWIDTH, UrbanFlowGeometry, UrbanFlowScale, flow_deltas,
+    DELTA_CMAP, FLOW_CMAP, MAXIMUM_LINEWIDTH, UrbanFlowGeometry, UrbanFlowScale, flow_deltas,
     flow_linewidth, plot_delta_flows, plot_urban_flows,
 )
 
@@ -110,10 +109,10 @@ def test_styles_stay_bound_to_edge_ids_and_delta_colors_have_correct_sign(graph,
     scale = UrbanFlowScale.from_flows(graph, [baseline, modified], baseline_flows=baseline)
     plot_urban_flows(graph, baseline, tmp_path / "flows.png", geometry=geometry, scale=scale)
     ordered = [edge for edge in geometry.geometries if baseline.get(edge, 0) > 0]
-    expected = [colormaps["viridis"](Normalize(0, scale.maximum_ratio)(baseline[edge] / 1000)) for edge in ordered]
+    expected = [FLOW_CMAP(Normalize(0, scale.maximum_ratio)(baseline[edge] / 1000)) for edge in ordered]
     np.testing.assert_allclose(collection(captured[-1], "active-flow-overlay").get_colors(), expected)
     plot_delta_flows(graph, baseline, modified, tmp_path / "delta.png", geometry=geometry, scale=scale)
-    expected = [colormaps["RdBu_r"](TwoSlopeNorm(vmin=-800, vcenter=0, vmax=800)(modified[edge] - baseline[edge]))
+    expected = [DELTA_CMAP(TwoSlopeNorm(vmin=-800, vcenter=0, vmax=800)(modified[edge] - baseline[edge]))
                 for edge in ordered]
     np.testing.assert_allclose(collection(captured[-1], "delta-flow-overlay").get_colors(), expected)
 
@@ -137,3 +136,12 @@ def test_plotting_changes_no_numeric_exports_and_freezes_shared_scales(tmp_path)
         assert metadata[0][key] == metadata[1][key]
     assert len(list(plotted.rglob("delta_flow.png"))) == 1
     assert len(list(plotted.rglob("flows.png"))) == 2
+
+def test_delta_palette_is_blue_gray_red_and_removal_is_prominent():
+    from braess.urban_flow_plots import REMOVED_LINEWIDTH
+    blue, neutral, red = [DELTA_CMAP(value)[:3] for value in (0.0, .5, 1.0)]
+    assert blue[2] > blue[0] + .4
+    assert red[0] > red[2] + .4
+    assert max(neutral) - min(neutral) < .03
+    assert .6 < min(neutral) < .85
+    assert REMOVED_LINEWIDTH > MAXIMUM_LINEWIDTH

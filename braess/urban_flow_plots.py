@@ -11,7 +11,7 @@ import networkx as nx
 import osmnx as ox
 from matplotlib import colormaps
 from matplotlib.collections import LineCollection
-from matplotlib.colors import Normalize, TwoSlopeNorm
+from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
 from shapely.affinity import translate
 from shapely.geometry import LineString, Point
@@ -22,7 +22,12 @@ from braess.models import EdgeFlowMap, EdgeId
 MAXIMUM_LINEWIDTH = 2.1  # points; the previous urban rendering used 6 points
 MINIMUM_LINEWIDTH = .35
 PARALLEL_SPACING = 2.4  # points on the figure, not a change to road geometry
-REMOVED_COLOR = "#cc1673"
+REMOVED_COLOR = "#e6007e"
+REMOVED_LINEWIDTH = 2.9
+FLOW_CMAP = colormaps["plasma"]
+DELTA_CMAP = LinearSegmentedColormap.from_list(
+    "flow_change", ["#0956b8", "#579cda", "#bfc1c4", "#ef806b", "#c91e28"], N=257,
+)
 
 
 @dataclass(frozen=True)
@@ -140,7 +145,7 @@ class UrbanFlowGeometry:
 def _draw_network(axis, graph, flows, geometry, scale, norm, cmap, bounds, *, threshold,
                   removed_edge, delta, endpoints, detail=False):
     background = LineCollection([list(line.coords) for line in geometry.geometries.values()],
-                                colors="#d2d9df", linewidths=.25, zorder=1)
+                                colors="#b8c2cb", linewidths=.30, zorder=1)
     background.set_gid("full-road-network")
     axis.add_collection(background)
     west, south, east, north = bounds
@@ -188,8 +193,8 @@ def _draw_network(axis, graph, flows, geometry, scale, norm, cmap, bounds, *, th
     if removed_edge is not None:
         removed = geometry.geometries[removed_edge]
         # Geometria original, mesmo ausente na rede modificada.
-        axis.plot(*removed.xy, color="white", linewidth=3, zorder=5, solid_capstyle="round")
-        artist, = axis.plot(*removed.xy, color=REMOVED_COLOR, linewidth=1.8,
+        axis.plot(*removed.xy, color="white", linewidth=4.2, zorder=5, solid_capstyle="round")
+        artist, = axis.plot(*removed.xy, color=REMOVED_COLOR, linewidth=REMOVED_LINEWIDTH,
                             linestyle=(0, (4, 2.5)), zorder=6, dash_capstyle="round")
         artist.set_gid("removed-edge")
         if not detail:
@@ -204,8 +209,8 @@ def _draw_network(axis, graph, flows, geometry, scale, norm, cmap, bounds, *, th
         xy = geometry.node_position(node)
         if not (west <= xy[0] <= east and south <= xy[1] <= north):
             continue
-        axis.scatter(*xy, s=220 if detail else 300, marker=marker, c=color,
-                     edgecolors="white", linewidths=1.8, zorder=10)
+        axis.scatter(*xy, s=270 if detail else 360, marker=marker, c=color,
+                     edgecolors="white", linewidths=2.2, zorder=10)
         axis.text(*xy, label, ha="center", va="center", color="white", fontsize=11 if detail else 13,
                   weight="bold", zorder=11, clip_on=detail)
 
@@ -215,12 +220,12 @@ def _plot_map(graph, flows, output_path, *, title, minimum_active_flow, scale,
               removed_edge, delta=False):
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure = plt.figure(figsize=(13, 10), facecolor="white")
-    axis = figure.add_axes((.035, .15, .66, .76))
-    color_axis = figure.add_axes((.755, .36, .21, .018))
+    figure = plt.figure(figsize=(12, 8.5), facecolor="white")
+    axis = figure.add_axes((.025, .11, .68, .80))
+    color_axis = figure.add_axes((.755, .37, .21, .022))
     endpoints = [(origin_node, origin_label, "origem", "#087f8c", "o"),
                  (destination_node, destination_label, "destino", "#25354a", "s")]
-    cmap = colormaps["RdBu_r" if delta else "viridis"]
+    cmap = DELTA_CMAP if delta else FLOW_CMAP
     norm = (TwoSlopeNorm(vmin=-scale.maximum_delta, vcenter=0, vmax=scale.maximum_delta)
             if delta else Normalize(vmin=0, vmax=scale.maximum_ratio))
     try:
@@ -228,7 +233,7 @@ def _plot_map(graph, flows, output_path, *, title, minimum_active_flow, scale,
         options = dict(threshold=minimum_active_flow, removed_edge=removed_edge, delta=delta, endpoints=endpoints)
         _draw_network(axis, graph, flows, geometry, scale, norm, cmap, geometry.bounds, **options)
         if geometry.detail_bounds is not None:
-            detail_axis = figure.add_axes((.745, .52, .23, .32))
+            detail_axis = figure.add_axes((.745, .52, .23, .36))
             detail_axis.set_title("Detalhe · mesmo recorte em todos os cenários", fontsize=8, pad=9)
             _draw_network(detail_axis, graph, flows, geometry, scale, norm, cmap, geometry.detail_bounds,
                           detail=True, **options)
@@ -238,20 +243,20 @@ def _plot_map(graph, flows, output_path, *, title, minimum_active_flow, scale,
         handles = [Line2D([], [], color=color, marker=marker, linestyle="none", markersize=9,
                           label=f"{label} — {role}") for node, label, role, color, marker in endpoints if node is not None]
         if removed_edge is not None:
-            handles.append(Line2D([], [], color=REMOVED_COLOR, linewidth=1.8, linestyle="--", label="Aresta removida"))
+            handles.append(Line2D([], [], color=REMOVED_COLOR, linewidth=REMOVED_LINEWIDTH, linestyle="--", label="Aresta removida"))
         if handles:
-            figure.legend(handles=handles, loc="lower center", bbox_to_anchor=(.38, .105), ncol=3, frameon=False, fontsize=9)
+            figure.legend(handles=handles, loc="lower center", bbox_to_anchor=(.37, .065), ncol=3, frameon=False, fontsize=9)
         colorbar = figure.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=color_axis, orientation="horizontal",
                                    label="Δ fluxo (veíc/h)" if delta else "Fluxo / capacidade")
         if delta:
             colorbar.set_ticks([scale.maximum_delta * fraction for fraction in (-1, -.5, 0, .5, 1)])
         color_axis.tick_params(labelsize=8)
-        figure.text(.065, .062, "delta = fluxo modificado − fluxo baseline\nvermelho: aumento · azul: redução" if delta
+        figure.text(.755, .215, "Δ = modificado − baseline\nvermelho: aumento\nazul: redução · cinza: próximo de zero" if delta
                     else "espessura = fluxo\ncor = fluxo/capacidade", fontsize=9, color="#34434e")
         maximum = scale.maximum_delta if delta else scale.maximum_flow
         samples = [Line2D([], [], color="#536b7d", linewidth=flow_linewidth(maximum * ratio, maximum),
                           label=f"{maximum * ratio:,.0f}".replace(",", ".")) for ratio in (.25, .5, 1)]
-        figure.legend(handles=samples, loc="lower right", bbox_to_anchor=(.965, .045), ncol=3, frameon=False,
+        figure.legend(handles=samples, loc="lower right", bbox_to_anchor=(.975, .095), ncol=3, frameon=False,
                       title="|Δ fluxo| (veíc/h)" if delta else "Fluxo (veíc/h)", fontsize=8, title_fontsize=8)
         threshold = "Rede completa ao fundo; delta inclui a aresta removida." if delta else f"Rede completa ao fundo; destaque para fluxo > {minimum_active_flow:g} veíc/h."
         figure.text(.065, .027, threshold, fontsize=7, color="#5a6872")

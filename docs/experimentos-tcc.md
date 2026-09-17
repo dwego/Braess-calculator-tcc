@@ -163,7 +163,9 @@ usados para reproduzir o smoke test. O diretório de saída deve ser novo.
 `flows.png` mostra a rede completa em cinza claro, com origem e destino marcados
 pelos labels da rota nos nós efetivamente utilizados. `minimum_active_flow`
 controla apenas o destaque colorido; nenhuma rua do fundo é removida pelo limiar.
-A espessura representa fluxo absoluto e a cor representa fluxo/capacidade.
+A espessura representa fluxo absoluto e a cor representa fluxo/capacidade,
+com a paleta sequencial Plasma. O fundo fino tem contraste moderado e os
+marcadores O-D grandes usam labels em negrito e contorno branco.
 As espessuras usam escala logarítmica suave, máximo de 2,1 pontos e um limite
 adicional proporcional ao comprimento desenhado dos segmentos curtos.
 
@@ -175,7 +177,8 @@ não são modificados. `flow_plot.json` registra os limites, os nós O-D e a are
 removida para conferir a comparação.
 
 Nas remoções, o trecho excluído aparece em magenta tracejado usando sua geometria
-original do baseline. Um detalhe ampliado comum aos cenários torna visíveis
+original do baseline, com 2,9 pontos de largura e halo branco, acima do máximo
+das linhas de fluxo. Um detalhe ampliado comum aos cenários torna visíveis
 segmentos que seriam pequenos demais na visão geral. A rede original continua
 no fundo, inclusive nas figuras das redes modificadas.
 
@@ -185,7 +188,8 @@ Cada remoção com solução também gera `delta_flow.png` quando o nível é `a
 delta = modified_flow - baseline_flow
 ```
 
-Azul representa redução e vermelho representa aumento. A escala divergente é
+Azul representa redução, vermelho representa aumento e cinza representa
+valores próximos de zero. A escala divergente é
 simétrica em torno de zero, comum às remoções desse cenário; a espessura representa
 o módulo do delta. A removida tem fluxo modificado zero e delta igual ao negativo
 do fluxo baseline. O limiar de destaque de `flows.png` não oculta redistribuições
@@ -195,6 +199,8 @@ Arestas OSM com geometrias coincidentes são separadas por um pequeno deslocamen
 apenas no desenho, mantendo cada `(u, v, key)` e suas cores/espessuras. Setas
 indicam o sentido onde há espaço. Geometrias paralelas já distintas permanecem
 nas posições originais. Nenhuma aresta ou fluxo é agregado numericamente.
+Os PNGs são exportados a 300 dpi em layout de 12 × 8,5 polegadas, com detalhe,
+escala de cores e notas explicativas na coluna lateral.
 
 ## Definir outros mapas e rotas
 
