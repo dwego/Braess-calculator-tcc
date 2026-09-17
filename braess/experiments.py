@@ -11,6 +11,7 @@ from time import perf_counter
 
 from braess.experiment_config import load_config, point_members, route_node, scenario_count, validate_config
 from braess.experiment_maps import load_map_snapshot, prepare_inputs
+from braess.experiment_progress import log_progress, progress_phase
 from braess.frank_wolfe import FrankWolfeResult, frank_wolfe
 from braess.models import EdgeId, ODPair
 from braess.outputs import save_edge_results, save_iteration_history, save_json, save_records, save_summary
@@ -165,6 +166,8 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
         "origin_node": route_node(points, route, "origin"),
         "destination_node": route_node(points, route, "destination"), "demand": demand,
     }
+    context = f"{map_config['id']}/{route['id']} | demanda={demand:g} veíc/h"
+    log_progress(f"{context} | nós O-D: {identity['origin_node']} → {identity['destination_node']}")
     baseline = None
     baseline_runtime = 0.0
     removals = []
@@ -181,21 +184,29 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
         else:
             baseline_started = perf_counter()
             try:
-                baseline = frank_wolfe(graph, od_pairs, **config["solver"])
+                with progress_phase(f"{context} | baseline"):
+                    baseline = frank_wolfe(graph, od_pairs, **config["solver"])
             finally:
                 baseline_runtime = perf_counter() - baseline_started
             status = "OK" if baseline.converged else "NO_CONVERGENCE"
+            log_progress(f"{context} | baseline {status} | iterações={baseline.iterations} | "
+                         f"gap={baseline.relative_gap:.6g} | TSTT={baseline.total_system_travel_time:.6g} | "
+                         f"tempo médio={baseline.average_travel_time:.3f}s")
+            log_progress(f"{context} | exportando baseline: {directory / 'baseline'}")
             artifact_errors.extend(_export_solution(graph, baseline, directory / "baseline", config,
                                                     f"{map_config['id']} | {identity['direction']} | {demand} veíc/h",
                                                     flow_plots=flow_plots))
-            for index, candidate in enumerate(_candidates(graph, baseline, map_config, config), 1):
-                print(f"  remoção {index}: {candidate.edge}", flush=True)
+            candidates = _candidates(graph, baseline, map_config, config)
+            log_progress(f"{context} | {len(candidates)} candidatas selecionadas")
+            for index, candidate in enumerate(candidates, 1):
+                removal_label = f"{context} | remoção {index}/{len(candidates)} | {candidate.edge}"
                 removal_started = perf_counter()
                 try:
-                    result = run_single_removal(
-                        graph, od_pairs, baseline, candidate, **config["solver"],
-                        numerical_tolerance=config["removals"]["numerical_tolerance"],
-                    )
+                    with progress_phase(removal_label):
+                        result = run_single_removal(
+                            graph, od_pairs, baseline, candidate, **config["solver"],
+                            numerical_tolerance=config["removals"]["numerical_tolerance"],
+                        )
                 except Exception as exception:
                     # Falhas inesperadas também não interrompem as próximas candidatas.
                     result = RemovalResult(
@@ -205,6 +216,13 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                         absolute_improvement=None, relative_improvement=None, possible_braess=False,
                         status="ERROR", total_runtime_seconds=perf_counter() - removal_started,
                     )
+                metrics = result.solver_result
+                log_progress(f"{removal_label} | status={result.status} | "
+                             f"iterações={metrics.iterations if metrics else 'n/a'} | "
+                             f"gap={metrics.relative_gap if metrics else 'n/a'} | "
+                             f"TSTT={result.modified_tstt} | possível Braess={result.possible_braess}")
+                if result.error:
+                    log_progress(f"{removal_label} | erro: {result.error}")
                 row = identity | _edge_details(graph, candidate) | {
                     "status": result.status, "connected": result.connected,
                     "converged": bool(result.solver_result and result.solver_result.converged),
@@ -220,6 +238,7 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                     "solver_runtime_seconds": result.solver_runtime_seconds,
                 }
                 removal_directory = directory / "removals" / f"{candidate.edge.u}_{candidate.edge.v}_{candidate.edge.key}"
+                log_progress(f"{removal_label} | exportando: {removal_directory}")
                 row["artifact_errors"] = []
                 if result.solver_result is not None:
                     try:
@@ -244,7 +263,8 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
     except Exception as exception:
         status, error = "ERROR", f"{type(exception).__name__}: {exception}"
     if flow_plots:
-        plot_errors = _export_flow_comparisons(graph, baseline.flows, flow_plots, identity, config)
+        with progress_phase(f"{context} | renderizando fluxos/deltas de {len(flow_plots)} soluções"):
+            plot_errors = _export_flow_comparisons(graph, baseline.flows, flow_plots, identity, config)
         for plot_directory, errors in plot_errors.items():
             artifact_errors.extend(errors)
             if errors and plot_directory.parent.name == "removals":
@@ -267,6 +287,12 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
     }
     save_records(removals, directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
     save_json(summary, directory / "summary.json")
+    log_progress(f"{context} | fim: {status} | remoções={len(removals)} | "
+                 f"tempo total={summary['scenario_runtime_seconds']:.1f}s | saída={directory}")
+    if error:
+        log_progress(f"{context} | erro: {error}")
+    for artifact_error in artifact_errors:
+        log_progress(f"{context} | erro de exportação: {artifact_error}")
     return summary, removals
 
 
@@ -292,7 +318,9 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
     output_directory = Path(output_directory).resolve()
     output_directory.mkdir(parents=True, exist_ok=False)
     # Inclui cópias portáveis das redes brutas, coordenadas e parâmetros usados.
-    frozen_path = prepare_inputs(config, output_directory / "inputs")
+    log_progress(f"Execução: {scenario_count(config)} cenários-base | saída={output_directory}")
+    with progress_phase("Preparando cópias das entradas"):
+        frozen_path = prepare_inputs(config, output_directory / "inputs")
     frozen = load_config(frozen_path)
     metadata = {
         "started_at": datetime.now(timezone.utc).isoformat(), "code": _revision(),
@@ -304,10 +332,13 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
     save_json(metadata | {"status": "RUNNING"}, output_directory / "experiment.json")
     scenarios, removals = [], []
     for map_config in frozen["maps"]:
-        graph = prepare_urban_graph(load_map_snapshot(map_config), **frozen["urban"])
+        with progress_phase(f"{map_config['id']} | carregando e preparando grafo"):
+            graph = prepare_urban_graph(load_map_snapshot(map_config), **frozen["urban"])
+        log_progress(f"{map_config['id']} | {graph.number_of_nodes()} nós | {graph.number_of_edges()} arestas")
         for route in map_config["routes"]:
             for demand in route.get("demands", frozen["demands"]):
-                print(f"[{len(scenarios) + 1}/{metadata['scenario_count']}] {map_config['id']}/{route['id']} | {demand} veíc/h", flush=True)
+                log_progress(f"Cenário {len(scenarios) + 1}/{metadata['scenario_count']} | "
+                             f"{map_config['id']}/{route['id']} | demanda={demand:g} veíc/h")
                 directory = output_directory / "scenarios" / map_config["id"] / route["id"] / f"demand-{demand}"
                 summary, results = _run_scenario(graph, map_config, route, demand, frozen, directory)
                 scenarios.append(summary)
@@ -333,4 +364,6 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
         total_experiment_runtime_seconds=perf_counter() - started_at,
     )
     save_json(metadata, output_directory / "experiment.json")
+    log_progress(f"{metadata['status']} | cenários={len(scenarios)} | remoções={len(removals)} | "
+                 f"tempo total={metadata['total_experiment_runtime_seconds']:.1f}s")
     return metadata

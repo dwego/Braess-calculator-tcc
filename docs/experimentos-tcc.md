@@ -326,3 +326,31 @@ O processo retorna código 2 quando há erro de configuração/execução/export
 Desconexões e falta de convergência são resultados científicos registrados nas
 tabelas e contagens; por si só não fazem a bateria retornar erro. Não confunda
 `COMPLETED` com a convergência de todos os cenários: consulte os status.
+
+### Acompanhar testes com 2000, 4000 e 6000 veíc/h
+
+Use a configuração resolvida completa, que contém as três demandas. Omitir
+`--demand` mantém todas as demandas configuradas da rota; uma configuração
+congelada de smoke test com apenas 2000 não recupera as demais demandas.
+
+```bash
+set -o pipefail
+.venv/bin/python -u run_tcc_experiments.py run \
+  --config experiments/tcc_scenarios_resolved.json \
+  --map mapa_1 --route A_to_B \
+  --candidate-limit 3 --plot-level all \
+  --output outputs/tcc-mapa-1-tres-demandas \
+  2>&1 | tee tcc-mapa-1-tres-demandas.log
+```
+
+Escolha um diretório de saída novo a cada execução. O comando executa três
+baselines e até nove remoções. Para testar outra rota ou mapa, troque os filtros.
+Use `--demand 4000`, por exemplo, para executar somente essa demanda.
+
+Os logs são enviados imediatamente ao terminal, com horário local, cenário
+atual/total, mapa, rota, demanda, nós O-D, remoção atual/total, início/fim de
+cada cálculo, convergência, iterações, gap, TSTT e caminhos dos resultados.
+Etapas demoradas emitem uma mensagem de atividade a cada 15 segundos; ela informa
+tempo decorrido, não avanço de iterações nem uma estimativa de conclusão.
+Erros do solver e da exportação aparecem nos logs. O solver e os CSVs mantêm
+a lógica existente; os tempos medidos podem variar com a execução.
