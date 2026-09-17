@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "demands": [
+    2000
+  ],
+  "solver": {
+    "relative_gap_tolerance": 0.0005,
+    "max_iterations": 1000,
+    "line_search_tolerance": 1e-10
+  },
+  "removals": {
+    "limit": 2,
+    "minimum_flow": 40.0,
+    "excluded_highway_types": [
+      "service"
+    ],
+    "numerical_tolerance": 1e-06
+  },
+  "urban": {
+    "capacity_per_lane": {
+      "motorway": 2000.0,
+      "motorway_link": 1400.0,
+      "trunk": 1800.0,
+      "trunk_link": 1300.0,
+      "primary": 1600.0,
+      "primary_link": 1200.0,
+      "secondary": 1400.0,
+      "secondary_link": 1100.0,
+      "tertiary": 1200.0,
+      "tertiary_link": 1000.0,
+      "residential": 900.0,
+      "living_street": 600.0,
+      "service": 600.0,
+      "unclassified": 900.0
+    },
+    "default_capacity_per_lane": 800.0,
+    "default_lanes": 1
+  },
+  "images": {
+    "enabled": true,
+    "minimum_active_flow": 40.0
+  },
+  "maps": [
+    {
+      "id": "example",
+      "graphml": "example_network.graphml",
+      "margin_m": 500,
+      "max_snap_distance_m": 100,
+      "points": {
+        "A": {
+          "label": "A",
+          "intersection": "Ponto sintético A",
+          "latitude": -23.18,
+          "longitude": -45.89
+        },
+        "B": {
+          "label": "B",
+          "intersection": "Ponto sintético B",
+          "latitude": -23.18,
+          "longitude": -45.888
+        }
+      },
+      "routes": [
+        {
+          "id": "A_to_B",
+          "origin": "A",
+          "destination": "B"
+        },
+        {
+          "id": "B_to_A",
+          "origin": "B",
+          "destination": "A"
+        }
+      ]
+    }
+  ]
+}

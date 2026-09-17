@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "demands": [
+    2000,
+    4000,
+    6000
+  ],
+  "solver": {
+    "relative_gap_tolerance": 0.0005,
+    "max_iterations": 1000,
+    "line_search_tolerance": 1e-10
+  },
+  "removals": {
+    "limit": 10,
+    "minimum_flow": 40.0,
+    "excluded_highway_types": [
+      "service"
+    ],
+    "numerical_tolerance": 1e-06
+  },
+  "urban": {
+    "capacity_per_lane": {
+      "motorway": 2000.0,
+      "motorway_link": 1400.0,
+      "trunk": 1800.0,
+      "trunk_link": 1300.0,
+      "primary": 1600.0,
+      "primary_link": 1200.0,
+      "secondary": 1400.0,
+      "secondary_link": 1100.0,
+      "tertiary": 1200.0,
+      "tertiary_link": 1000.0,
+      "residential": 900.0,
+      "living_street": 600.0,
+      "service": 600.0,
+      "unclassified": 900.0
+    },
+    "default_capacity_per_lane": 800.0,
+    "default_lanes": 1
+  },
+  "images": {
+    "enabled": true,
+    "minimum_active_flow": 40.0
+  },
+  "maps": [
+    {
+      "id": "mapa_1",
+      "locality": "São José dos Campos, São Paulo, Brasil",
+      "margin_m": 1000,
+      "max_snap_distance_m": 300,
+      "points": {
+        "A": {
+          "label": "A",
+          "intersection": "Av. Salinas x Av. Cidade Jardim",
+          "latitude": null,
+          "longitude": null
+        },
+        "B": {
+          "label": "B",
+          "intersection": "Av. Dr. Sebastião Henrique da Cunha Pontes x Av. Cidade Jardim",
+          "latitude": null,
+          "longitude": null
+        },
+        "C": {
+          "label": "C",
+          "intersection": "Av. Andrômeda x Av. Cidade Jardim",
+          "latitude": null,
+          "longitude": null
+        },
+        "D": {
+          "label": "D",
+          "intersection": "Av. Perseu x Av. Andrômeda",
+          "latitude": null,
+          "longitude": null
+        }
+      },
+      "routes": [
+        {
+          "id": "A_to_B",
+          "origin": "A",
+          "destination": "B"
+        },
+        {
+          "id": "B_to_A",
+          "origin": "B",
+          "destination": "A"
+        },
+        {
+          "id": "A_to_C",
+          "origin": "A",
+          "destination": "C"
+        },
+        {
+          "id": "C_to_A",
+          "origin": "C",
+          "destination": "A"
+        },
+        {
+          "id": "A_to_D",
+          "origin": "A",
+          "destination": "D"
+        },
+        {
+          "id": "D_to_A",
+          "origin": "D",
+          "destination": "A"
+        },
+        {
+          "id": "C_to_B",
+          "origin": "C",
+          "destination": "B"
+        },
+        {
+          "id": "B_to_C",
+          "origin": "B",
+          "destination": "C"
+        }
+      ]
+    },
+    {
+      "id": "mapa_2",
+      "locality": "São José dos Campos, São Paulo, Brasil",
+      "margin_m": 1000,
+      "max_snap_distance_m": 300,
+      "points": {
+        "A": {
+          "label": "A",
+          "intersection": "Av. Mario Covas x Rod. dos Tamoios",
+          "latitude": null,
+          "longitude": null
+        },
+        "B": {
+          "label": "B",
+          "intersection": "Av. Mal. Henrique Teixeira Lott x R. Paraibuna",
+          "latitude": null,
+          "longitude": null
+        }
+      },
+      "routes": [
+        {
+          "id": "A_to_B",
+          "origin": "A",
+          "destination": "B"
+        },
+        {
+          "id": "B_to_A",
+          "origin": "B",
+          "destination": "A"
+        }
+      ]
+    },
+    {
+      "id": "mapa_3",
+      "locality": "São José dos Campos, São Paulo, Brasil",
+      "margin_m": 1000,
+      "max_snap_distance_m": 300,
+      "points": {
+        "A": {
+          "label": "A",
+          "intersection": "Av. João Marson x Av. Pres. Juscelino Kubitschek",
+          "latitude": null,
+          "longitude": null
+        },
+        "B": {
+          "label": "B",
+          "intersection": "Av. General Motors x Av. dos Cegonheiros",
+          "latitude": null,
+          "longitude": null
+        }
+      },
+      "routes": [
+        {
+          "id": "A_to_B",
+          "origin": "A",
+          "destination": "B"
+        },
+        {
+          "id": "B_to_A",
+          "origin": "B",
+          "destination": "A"
+        }
+      ]
+    }
+  ]
+}

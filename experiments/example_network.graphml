@@ -1,0 +1,125 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="d11" for="edge" attr.name="name" attr.type="string" />
+  <key id="d10" for="edge" attr.name="travel_time" attr.type="string" />
+  <key id="d9" for="edge" attr.name="length" attr.type="string" />
+  <key id="d8" for="edge" attr.name="lanes" attr.type="string" />
+  <key id="d7" for="edge" attr.name="highway" attr.type="string" />
+  <key id="d6" for="edge" attr.name="osmid" attr.type="string" />
+  <key id="d5" for="node" attr.name="y" attr.type="string" />
+  <key id="d4" for="node" attr.name="x" attr.type="string" />
+  <key id="d3" for="graph" attr.name="description" attr.type="string" />
+  <key id="d2" for="graph" attr.name="network_type" attr.type="string" />
+  <key id="d1" for="graph" attr.name="simplified" attr.type="string" />
+  <key id="d0" for="graph" attr.name="crs" attr.type="string" />
+  <graph edgedefault="directed">
+    <node id="1">
+      <data key="d4">-45.89</data>
+      <data key="d5">-23.18</data>
+    </node>
+    <node id="2">
+      <data key="d4">-45.889</data>
+      <data key="d5">-23.179</data>
+    </node>
+    <node id="3">
+      <data key="d4">-45.889</data>
+      <data key="d5">-23.181</data>
+    </node>
+    <node id="4">
+      <data key="d4">-45.888</data>
+      <data key="d5">-23.18</data>
+    </node>
+    <edge source="1" target="2" id="0">
+      <data key="d6">102</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">10.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="1" target="2" id="7">
+      <data key="d6">999</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">200.0</data>
+      <data key="d10">35.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="1" target="3" id="0">
+      <data key="d6">103</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">12.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="2" target="1" id="0">
+      <data key="d6">201</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">10.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="2" target="4" id="0">
+      <data key="d6">204</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">12.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="2" target="3" id="0">
+      <data key="d6">203</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">2.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="3" target="1" id="0">
+      <data key="d6">301</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">12.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="3" target="4" id="0">
+      <data key="d6">304</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">10.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="3" target="2" id="0">
+      <data key="d6">302</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">2.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="4" target="2" id="0">
+      <data key="d6">402</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">12.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <edge source="4" target="3" id="0">
+      <data key="d6">403</data>
+      <data key="d7">residential</data>
+      <data key="d8">1</data>
+      <data key="d9">150.0</data>
+      <data key="d10">10.0</data>
+      <data key="d11">Via de teste</data>
+    </edge>
+    <data key="d0">epsg:4326</data>
+    <data key="d1">True</data>
+    <data key="d2">drive</data>
+    <data key="d3">Synthetic offline test network; not OSM data</data>
+  </graph>
+</graphml>

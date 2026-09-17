@@ -21,3 +21,22 @@ Também são executados experimentos de remoção de conexões, permitindo recal
 Para uma explicação completa do fluxo computacional, decisões de implementação, modelos matemáticos e funcionamento do software, consulte:
 
 [`docs/modelo-computacional.md`](docs/modelo-computacional.md)
+
+## Experimentos configuráveis do TCC
+
+O runner `run_tcc_experiments.py` executa mapas, rotas O-D, sentidos, demandas e
+remoções definidos em JSON, sem editar o código. A configuração
+[`experiments/tcc_scenarios.json`](experiments/tcc_scenarios.json) descreve os
+36 cenários-base de São José dos Campos; as coordenadas devem ser preenchidas
+ou resolvidas antes da preparação.
+
+Teste o pipeline com a rede sintética incluída, sem internet:
+
+```bash
+python run_tcc_experiments.py prepare --config experiments/example_scenarios.json --output outputs/example-inputs
+python run_tcc_experiments.py run --config outputs/example-inputs/scenarios.json --output outputs/example-run
+```
+
+O [guia da bateria experimental](docs/experimentos-tcc.md) explica como resolver
+os pontos, congelar as redes, rodar a bateria completa com um comando e testar
+outros mapas alterando apenas a configuração.
