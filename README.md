@@ -51,3 +51,14 @@ O [guia de resolução dos pontos](docs/resolucao-pontos-tcc.md) explica a busca
 por nomes na malha OSM, os complexos com múltiplos nós e a validação visual.
 As imagens e o CSV ficam em `outputs/tcc-point-resolution/`; o JSON original
 é preservado. Use nomes de saída novos ao repetir a resolução.
+
+Após conferir os pontos, execute somente um cenário com até três candidatas:
+
+```bash
+python run_tcc_experiments.py run --config experiments/tcc_scenarios_resolved.json \
+  --map mapa_1 --route A_to_B --demand 2000 --candidate-limit 3 --plot-level all \
+  --output outputs/tcc-smoke-mapa-1
+```
+
+Os filtros preservam os nós resolvidos de cada direção. `--plot-level` aceita
+`none`, `baseline` ou `all`; os resultados numéricos são sempre exportados.

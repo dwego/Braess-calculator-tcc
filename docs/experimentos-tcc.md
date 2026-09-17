@@ -110,6 +110,54 @@ reutilizadas sem alteração de sua matemática. Cada mapa é preparado com
 uma cópia independente da rede original. A exportação dos tempos modificados
 atualiza a cópia com os fluxos do resultado, sem executar novamente o solver.
 
+## Smoke test de um cenário
+
+Use filtros sobre o JSON resolvido (ou sobre o `scenarios.json` preparado) para
+executar apenas um mapa, uma direção e uma demanda:
+
+```bash
+python run_tcc_experiments.py run \
+  --config experiments/tcc_scenarios_resolved.json \
+  --map mapa_1 --route A_to_B --demand 2000 \
+  --candidate-limit 3 --plot-level all \
+  --output outputs/tcc-smoke-mapa-1
+```
+
+Esse comando executa um baseline e **no máximo três candidatas** à remoção.
+A matemática, as tolerâncias do solver e a seleção existente por fluxo continuam
+as mesmas. O limite também trunca listas explícitas de `removal_edges`, mantendo
+a ordem configurada. Sem `--candidate-limit`, permanece o comportamento do JSON.
+O limite deve ser um inteiro positivo.
+
+`--map`, `--route` e `--demand` selecionam valores já presentes na configuração.
+A demanda por rota prevalece sobre a lista global; uma demanda ausente, um ID
+inexistente ou uma combinação vazia retorna erro antes de executar cenários ou
+criar saídas. Sem `--map`, um ID de rota pode selecionar rotas de vários mapas.
+O terminal mostra o número de cenários selecionados. Os mesmos filtros são
+aceitos por `validate` para conferir a seleção sem executar o solver, e por
+`prepare` para congelar somente os mapas selecionados. Não se aplicam a
+`resolve-points`, que prepara a geometria separadamente.
+
+Os filtros preservam todos os pontos do mapa, membros de grupos, centro, raio,
+snapshot e `origin_node`/`destination_node` de cada rota. Para o mapa 2 resolvido,
+`--map mapa_2 --route A_to_B` usa a origem A2 (`1425164988`), enquanto
+`--map mapa_2 --route B_to_A` usa o destino A1 (`1425156870`). A CLI não resolve
+novamente o complexo nem escolhe outro membro. Uma rota de grupo sem nó definido
+é rejeitada antes da execução.
+
+| `--plot-level` | Figuras PNG |
+| --- | --- |
+| `none` | Nenhuma. |
+| `baseline` | Fluxos e convergência apenas do baseline. |
+| `all` | Fluxos e convergência do baseline e de cada remoção com solução. |
+
+Os CSVs e JSONs numéricos são gerados em todos os níveis. A flag sobrescreve
+`images.enabled` e `images.plot_level` somente na cópia da execução; sem a flag,
+o JSON controla as figuras e o nível padrão é `all`. `images.enabled: false`
+desliga todas as imagens. O arquivo de entrada permanece intacto, e
+`<output>/inputs/scenarios.json` registra a seleção e os parâmetros efetivamente
+usados para reproduzir o smoke test. O diretório de saída deve ser novo.
+
 ## Definir outros mapas e rotas
 
 Copie `experiments/tcc_scenarios.json`, substitua `maps` e passe o novo caminho
@@ -139,7 +187,7 @@ Os demais parâmetros também ficam no JSON:
 - `solver`: tolerância do Relative Gap, limite de iterações e tolerância da busca linear;
 - `urban`: capacidades por faixa por classe viária, capacidade e faixas padrão;
 - `removals`: `limit`, `minimum_flow`, `excluded_highway_types`, `numerical_tolerance`;
-- `images`: `enabled` e `minimum_active_flow` (limiar **visual**, sem excluir dados do CSV).
+- `images`: `enabled`, `plot_level` (`none`, `baseline`, `all`) e `minimum_active_flow` (limiar **visual**, sem excluir dados do CSV).
 
 Por padrão são testadas as dez arestas de maior fluxo acima de 40 veíc/h,
 excluindo `service`, usando a seleção existente. `limit: null` seleciona todas

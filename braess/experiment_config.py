@@ -28,6 +28,7 @@ DEFAULT_POINT_RESOLUTION = {
     "search_radius_m": 15000,
     "zoom_radius_m": 300.0,
 }
+PLOT_LEVELS = ("none", "baseline", "all")
 
 
 def _number(value: Any, name: str, *, minimum: float = 0, strict: bool = True) -> None:
@@ -136,10 +137,13 @@ def validate_config(config: dict, *, require_coordinates: bool = True) -> dict:
         raise ValueError("urban.default_lanes deve ser inteiro positivo.")
 
     images = result.setdefault("images", {"enabled": True})
-    if not isinstance(images, dict) or images.keys() - {"enabled", "minimum_active_flow"}:
+    if not isinstance(images, dict) or images.keys() - {"enabled", "minimum_active_flow", "plot_level"}:
         raise ValueError("Campos inválidos em images.")
     images.setdefault("enabled", True)
     images.setdefault("minimum_active_flow", 40.0)
+    images.setdefault("plot_level", "all")
+    if images["plot_level"] not in PLOT_LEVELS:
+        raise ValueError("images.plot_level deve ser none, baseline ou all.")
     if type(images["enabled"]) is not bool:
         raise ValueError("images.enabled deve ser booleano.")
     _number(images["minimum_active_flow"], "images.minimum_active_flow", strict=False)
@@ -265,6 +269,47 @@ def scenario_count(config: dict) -> int:
         len(route.get("demands", config["demands"]))
         for map_config in config["maps"] for route in map_config["routes"]
     )
+
+
+def select_scenarios(config: dict, *, map_id: str | None = None, route_id: str | None = None,
+                     demand: float | None = None, candidate_limit: int | None = None,
+                     plot_level: str | None = None) -> dict:
+    """Filtra uma cópia da configuração, preservando rede, pontos e nós por direção."""
+    selected = deepcopy(config)
+    if map_id is not None:
+        selected["maps"] = [item for item in selected["maps"] if item["id"] == map_id]
+        if not selected["maps"]:
+            raise ValueError(f"--map: mapa não encontrado: {map_id}.")
+    if route_id is not None:
+        for item in selected["maps"]:
+            item["routes"] = [route for route in item["routes"] if route["id"] == route_id]
+        selected["maps"] = [item for item in selected["maps"] if item["routes"]]
+        if not selected["maps"]:
+            raise ValueError(f"--route: rota não encontrada nos mapas selecionados: {route_id}.")
+    if demand is not None:
+        _number(demand, "--demand")
+        for item in selected["maps"]:
+            for route in item["routes"]:
+                # A lista por rota tem precedência sobre a global; preserva o tipo
+                # original (2000 em vez de 2000.0) inclusive no nome do diretório.
+                route["demands"] = [value for value in route.get("demands", selected["demands"]) if value == demand]
+            item["routes"] = [route for route in item["routes"] if route["demands"]]
+        selected["maps"] = [item for item in selected["maps"] if item["routes"]]
+        if not selected["maps"]:
+            raise ValueError(f"--demand: demanda não encontrada nas rotas selecionadas: {demand:g}.")
+        selected["demands"] = [selected["maps"][0]["routes"][0]["demands"][0]]
+    if candidate_limit is not None:
+        if type(candidate_limit) is not int or candidate_limit <= 0:
+            raise ValueError("--candidate-limit deve ser inteiro positivo.")
+        selected["removals"]["limit"] = candidate_limit
+        for item in selected["maps"]:
+            if "removal_edges" in item:
+                item["removal_edges"] = item["removal_edges"][:candidate_limit]
+    if plot_level is not None:
+        if plot_level not in PLOT_LEVELS:
+            raise ValueError("--plot-level deve ser none, baseline ou all.")
+        selected["images"].update(enabled=plot_level != "none", plot_level=plot_level)
+    return selected
 
 
 def map_extent(map_config: dict) -> tuple[tuple[float, float], int]:

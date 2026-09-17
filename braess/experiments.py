@@ -42,7 +42,7 @@ def _metrics(result: FrankWolfeResult | None, prefix: str) -> dict:
     return {f"{prefix}_{key}": getattr(result, value) if result else None for key, value in names.items()}
 
 
-def _export_solution(graph, result, directory: Path, config: dict, title: str) -> list[str]:
+def _export_solution(graph, result, directory: Path, config: dict, title: str, *, plot: bool = True) -> list[str]:
     """Uma falha de figura não descarta métricas nem impede outras remoções."""
     errors = []
     try:
@@ -55,7 +55,7 @@ def _export_solution(graph, result, directory: Path, config: dict, title: str) -
         lambda: save_iteration_history(result, directory / "convergence.csv"),
         lambda: save_summary(result, directory / "solver.json", extra={"final_relative_gap": result.relative_gap}),
     ]
-    if config["images"]["enabled"]:
+    if plot and config["images"]["enabled"] and config["images"]["plot_level"] != "none":
         exports.extend([
             lambda: _export_images(graph, result, directory, config, title),
         ])
@@ -184,6 +184,7 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                         row["artifact_errors"] = _export_solution(
                             modified_graph, result.solver_result, removal_directory, config,
                             f"{identity['direction']} | remoção ({candidate.edge.u}, {candidate.edge.v}, {candidate.edge.key})",
+                            plot=config["images"]["plot_level"] == "all",
                         )
                     except Exception as exception:
                         row["artifact_errors"].append(f"{type(exception).__name__}: {exception}")
