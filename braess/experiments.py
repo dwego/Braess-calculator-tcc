@@ -16,6 +16,7 @@ from braess.frank_wolfe import FrankWolfeResult, frank_wolfe
 from braess.models import EdgeId, ODPair
 from braess.outputs import save_edge_results, save_iteration_history, save_json, save_records, save_summary
 from braess.removal import RemovalCandidate, RemovalResult, all_od_pairs_are_connected, run_single_removal, select_removal_candidates
+from braess.saturation import saturation_metrics, plot_vc_distribution, plot_vc_demand_comparison
 from braess.synthetic import update_travel_times
 from braess.urban import BPR_PARAMETERS, prepare_urban_graph
 
@@ -26,7 +27,7 @@ REMOVAL_FIELDS = [
     "name", "highway", "length", "lanes", "free_flow_time", "capacity",
     "capacity_source", "bpr_alpha", "bpr_beta", "bpr_link_type", "baseline_flow",
     "baseline_travel_time", "baseline_vc_ratio", "baseline_volume_capacity_ratio",
-    "status", "connected", "converged", "error",
+    "status", "connected", "converged", "error", "final_relative_gap", "iterations", "max_vc_ratio",
     "baseline_tstt", "modified_tstt", "absolute_improvement", "relative_improvement",
     "relative_improvement_percent", "baseline_average_travel_time", "modified_average_travel_time",
     "baseline_beckmann_objective", "modified_beckmann_objective", "baseline_iterations",
@@ -57,11 +58,20 @@ def _export_solution(graph, result, directory: Path, config: dict, title: str, *
         lambda: save_iteration_history(result, directory / "convergence.csv"),
         lambda: save_summary(result, directory / "solver.json", extra={"final_relative_gap": result.relative_gap}),
     ]
+    if removed_edge is None:
+        exports.append(lambda: save_summary(result, directory / "summary.json", extra={
+            **saturation_metrics(graph, result.flows, config["images"]["minimum_active_flow"]),
+            "final_relative_gap": result.relative_gap,
+            "status": "OK" if result.converged else "NO_CONVERGENCE",
+        }))
     if plot and config["images"]["enabled"] and config["images"]["plot_level"] != "none":
         exports.extend([
             lambda: _export_images(graph, result, directory, config, title,
                                    flow_plots=flow_plots, removed_edge=removed_edge),
         ])
+        if removed_edge is None:
+            exports.append(lambda: plot_vc_distribution(
+                graph, result, config["images"]["minimum_active_flow"], directory / "vc_distribution.png", title))
     for export in exports:
         try:
             export()
@@ -115,6 +125,7 @@ def _export_flow_comparisons(graph, baseline_flows, flow_plots, identity, config
                        "removed_edge": asdict(removed_edge) if removed_edge else None,
                        "parallel_geometry_groups": len(geometry.parallel_groups),
                        "minimum_active_flow": config["images"]["minimum_active_flow"],
+                       "vc_color_normalization": {"vmin": 0.0, "vmax": 1.5, "clip": True},
                        "delta_definition": "modified_flow - baseline_flow"}, directory / "flow_plot.json")
         except Exception as error:
             errors[directory].append(f"{type(error).__name__}: {error}")
@@ -227,6 +238,11 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                     "status": result.status, "connected": result.connected,
                     "converged": bool(result.solver_result and result.solver_result.converged),
                     "error": result.error,
+                    "final_relative_gap": metrics.relative_gap if metrics else None,
+                    "iterations": metrics.iterations if metrics else None,
+                    "max_vc_ratio": saturation_metrics(
+                        graph, metrics.flows if metrics else None,
+                        config["images"]["minimum_active_flow"])["max_vc_ratio"],
                     **_metrics(baseline, "baseline"), **_metrics(result.solver_result, "modified"),
                     "absolute_improvement": result.absolute_improvement,
                     "relative_improvement": result.relative_improvement,
@@ -272,7 +288,9 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                     if plot_directory.name == f"{row['u']}_{row['v']}_{row['key']}":
                         row["artifact_errors"].extend(errors)
                         save_json(row, plot_directory / "result.json")
-    summary = identity | _metrics(baseline, "baseline") | {
+    saturation = saturation_metrics(graph, baseline.flows if baseline else None,
+                                    config["images"]["minimum_active_flow"])
+    summary = identity | _metrics(baseline, "baseline") | saturation | {
         "status": status, "connected": connected, "error": error,
         "converged": bool(baseline and baseline.converged),
         "iterations": baseline.iterations if baseline else None,
@@ -287,6 +305,7 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
     }
     save_records(removals, directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
     save_json(summary, directory / "summary.json")
+    save_records([summary], directory / "scenario_summary.csv")
     log_progress(f"{context} | fim: {status} | remoções={len(removals)} | "
                  f"tempo total={summary['scenario_runtime_seconds']:.1f}s | saída={directory}")
     if error:
@@ -344,7 +363,19 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
                 scenarios.append(summary)
                 removals.extend(results)
                 save_records(scenarios, output_directory / "baselines.csv")
+                save_records(scenarios, output_directory / "scenario_summary.csv")
                 save_records(removals, output_directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
+    comparison_errors = []
+    if frozen["images"]["enabled"] and frozen["images"]["plot_level"] != "none":
+        for map_config in frozen["maps"]:
+            for route in map_config["routes"]:
+                rows = [r for r in scenarios if r["map_id"] == map_config["id"] and r["od_pair_id"] == route["id"]]
+                if len(rows) >= 2:
+                    try:
+                        plot_vc_demand_comparison(rows, output_directory / "scenarios" / map_config["id"]
+                                                 / route["id"] / "vc_demand_comparison.png")
+                    except Exception as exception:
+                        comparison_errors.append(f"{map_config['id']}/{route['id']}: {exception}")
     groups = []
     for map_config in frozen["maps"]:
         rows = [row for row in removals if row["map_id"] == map_config["id"]]
@@ -353,10 +384,11 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
                           for status in ("OK", "DISCONNECTED", "NO_CONVERGENCE", "ERROR")},
                        "possible_braess": sum(row["possible_braess"] for row in rows)})
     save_records(groups, output_directory / "aggregated.csv")
-    has_errors = any(row["status"] == "ERROR" or row["artifact_errors"] for row in [*scenarios, *removals])
+    has_errors = bool(comparison_errors) or any(row["status"] == "ERROR" or row["artifact_errors"] for row in [*scenarios, *removals])
     metadata.update(
         status="COMPLETED_WITH_ERRORS" if has_errors else "COMPLETED",
         completed_at=datetime.now(timezone.utc).isoformat(),
+        comparison_artifact_errors=comparison_errors,
         completed_scenarios=len(scenarios), removal_count=len(removals),
         baseline_status_counts=dict(Counter(row["status"] for row in scenarios)),
         removal_status_counts=dict(Counter(row["status"] for row in removals)),
@@ -366,4 +398,16 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
     save_json(metadata, output_directory / "experiment.json")
     log_progress(f"{metadata['status']} | cenários={len(scenarios)} | remoções={len(removals)} | "
                  f"tempo total={metadata['total_experiment_runtime_seconds']:.1f}s")
+    for row in scenarios:
+        log_progress(f"{row['map_id']}/{row['od_pair_id']} | Demanda {row['demand']:g} | "
+                     f"max v/c={row['max_vc_ratio']} | mean active v/c={row['mean_active_vc_ratio']} | "
+                     f"median active v/c={row['median_active_vc_ratio']} | "
+                     f"% edges > 0.8={row['percent_active_edges_vc_gt_0_8']} | "
+                     f"% edges > 1.0={row['percent_active_edges_vc_gt_1_0']} | "
+                     f"status={row['status']} | gap={row['final_relative_gap']}")
+    log_progress(f"Baselines convergidos: {sum(r['converged'] for r in scenarios)}/{len(scenarios)}")
+    for status in ("OK", "DISCONNECTED", "NO_CONVERGENCE", "ERROR"):
+        log_progress(f"Remoções {status}: {metadata['removal_status_counts'].get(status, 0)}")
+    for error in comparison_errors:
+        log_progress(f"Erro na comparação entre demandas: {error}")
     return metadata

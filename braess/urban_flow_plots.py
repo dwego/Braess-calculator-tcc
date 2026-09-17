@@ -9,7 +9,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import networkx as nx
 import osmnx as ox
-from matplotlib import colormaps
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap, Normalize, TwoSlopeNorm
 from matplotlib.lines import Line2D
@@ -24,7 +23,11 @@ MINIMUM_LINEWIDTH = .35
 PARALLEL_SPACING = 2.4  # points on the figure, not a change to road geometry
 REMOVED_COLOR = "#e6007e"
 REMOVED_LINEWIDTH = 2.9
-FLOW_CMAP = colormaps["plasma"]
+VC_COLOR_MAX = 1.5
+FLOW_CMAP = LinearSegmentedColormap.from_list(
+    "saturation", [(0, "#2166ac"), (.5 / 1.5, "#1a9850"), (.8 / 1.5, "#f4d83a"),
+                   (1 / 1.5, "#fdae35"), (1.2 / 1.5, "#ef6526"), (1, "#b2182b")],
+)
 DELTA_CMAP = LinearSegmentedColormap.from_list(
     "flow_change", ["#0956b8", "#579cda", "#bfc1c4", "#ef806b", "#c91e28"], N=257,
 )
@@ -227,7 +230,7 @@ def _plot_map(graph, flows, output_path, *, title, minimum_active_flow, scale,
                  (destination_node, destination_label, "destino", "#25354a", "s")]
     cmap = DELTA_CMAP if delta else FLOW_CMAP
     norm = (TwoSlopeNorm(vmin=-scale.maximum_delta, vcenter=0, vmax=scale.maximum_delta)
-            if delta else Normalize(vmin=0, vmax=scale.maximum_ratio))
+            if delta else Normalize(vmin=0, vmax=VC_COLOR_MAX, clip=True))
     try:
         figure.suptitle(title, fontsize=14, y=.96)
         options = dict(threshold=minimum_active_flow, removed_edge=removed_edge, delta=delta, endpoints=endpoints)
@@ -247,9 +250,12 @@ def _plot_map(graph, flows, output_path, *, title, minimum_active_flow, scale,
         if handles:
             figure.legend(handles=handles, loc="lower center", bbox_to_anchor=(.37, .065), ncol=3, frameon=False, fontsize=9)
         colorbar = figure.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=color_axis, orientation="horizontal",
-                                   label="Δ fluxo (veíc/h)" if delta else "Fluxo / capacidade")
+                                   label="Δ fluxo (veíc/h)" if delta else "Fluxo / capacidade",
+                                   extend="neither" if delta else "max")
         if delta:
             colorbar.set_ticks([scale.maximum_delta * fraction for fraction in (-1, -.5, 0, .5, 1)])
+        else:
+            colorbar.set_ticks([0, .5, .8, 1, 1.5], labels=["0", "0,5", "0,8", "1,0", "1,5+"])
         color_axis.tick_params(labelsize=8)
         figure.text(.755, .215, "Δ = modificado − baseline\nvermelho: aumento\nazul: redução · cinza: próximo de zero" if delta
                     else "espessura = fluxo\ncor = fluxo/capacidade", fontsize=9, color="#34434e")

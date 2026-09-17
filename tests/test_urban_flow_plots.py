@@ -109,7 +109,7 @@ def test_styles_stay_bound_to_edge_ids_and_delta_colors_have_correct_sign(graph,
     scale = UrbanFlowScale.from_flows(graph, [baseline, modified], baseline_flows=baseline)
     plot_urban_flows(graph, baseline, tmp_path / "flows.png", geometry=geometry, scale=scale)
     ordered = [edge for edge in geometry.geometries if baseline.get(edge, 0) > 0]
-    expected = [FLOW_CMAP(Normalize(0, scale.maximum_ratio)(baseline[edge] / 1000)) for edge in ordered]
+    expected = [FLOW_CMAP(Normalize(0, 1.5, clip=True)(baseline[edge] / 1000)) for edge in ordered]
     np.testing.assert_allclose(collection(captured[-1], "active-flow-overlay").get_colors(), expected)
     plot_delta_flows(graph, baseline, modified, tmp_path / "delta.png", geometry=geometry, scale=scale)
     expected = [DELTA_CMAP(TwoSlopeNorm(vmin=-800, vcenter=0, vmax=800)(modified[edge] - baseline[edge]))

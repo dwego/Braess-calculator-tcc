@@ -164,13 +164,17 @@ usados para reproduzir o smoke test. O diretório de saída deve ser novo.
 pelos labels da rota nos nós efetivamente utilizados. `minimum_active_flow`
 controla apenas o destaque colorido; nenhuma rua do fundo é removida pelo limiar.
 A espessura representa fluxo absoluto e a cor representa fluxo/capacidade,
-com a paleta sequencial Plasma. O fundo fino tem contraste moderado e os
+com uma paleta azul/verde para baixa utilização, amarelo próximo de 0,8–1,0
+e laranja/vermelho acima da capacidade. O fundo fino tem contraste moderado e os
 marcadores O-D grandes usam labels em negrito e contorno branco.
 As espessuras usam escala logarítmica suave, máximo de 2,1 pontos e um limite
 adicional proporcional ao comprimento desenhado dos segmentos curtos.
 
 O baseline e todas as remoções com solução de um mesmo cenário compartilham
-os máximos de fluxo e V/C, calculados sobre o conjunto dessas soluções. Também
+o máximo de fluxo, calculado sobre o conjunto dessas soluções. A escala de cor
+é fixa em V/C de 0 a 1,5 em todas as demandas e cenários, com clipping apenas
+visual acima de 1,5 (extremo indicado por “1,5+”). Os valores reais continuam
+nos CSVs e nas métricas. As figuras de um cenário também
 compartilham o enquadramento completo e o recorte do detalhe. A exportação dos
 mapas aguarda as soluções para fixar essas escalas; os cálculos e CSVs numéricos
 não são modificados. `flow_plot.json` registra os limites, os nós O-D e a aresta
@@ -354,3 +358,38 @@ Etapas demoradas emitem uma mensagem de atividade a cada 15 segundos; ela inform
 tempo decorrido, não avanço de iterações nem uma estimativa de conclusão.
 Erros do solver e da exportação aparecem nos logs. O solver e os CSVs mantêm
 a lógica existente; os tempos medidos podem variar com a execução.
+
+### Saturação e comparação entre demandas
+
+Aresta ativa significa estritamente `flow > minimum_active_flow`. Os indicadores
+não ponderam por comprimento ou fluxo: cada aresta dirigida OSM ativa conta uma
+vez, preservando arestas paralelas. As médias e medianas excluem ruas inativas.
+
+Cada baseline exporta `max_vc_ratio`, `mean_active_vc_ratio`,
+`median_active_vc_ratio`, contagens `edges_vc_gt_0_8/1_0/1_5` e percentuais
+`percent_active_edges_vc_gt_0_8/1_0/1_5` (0–100). As comparações são estritas
+(`>`). `active_edge_count` e `minimum_active_flow` registram o denominador
+e o limiar. Sem arestas ativas, contagens são zero e média, mediana, máximo e
+percentuais ficam nulos; sem resultado do solver, também as contagens ficam nulas.
+Capacidade inválida em aresta ativa gera erro, nunca um V/C artificialmente zero.
+
+As métricas aparecem em `baseline/summary.json`, no `summary.json` do cenário,
+em `scenario_summary.csv` (por cenário e consolidado na raiz) e em
+`baselines.csv`. Cada baseline com imagens habilitadas gera
+`baseline/vc_distribution.png`: histograma dos valores reais de V/C, incluindo
+os superiores a 1,5, com linhas em 0,8, 1,0 e 1,5. Com duas ou mais demandas
+para o mesmo mapa/O-D, o pipeline gera `scenarios/<mapa>/<rota>/vc_demand_comparison.png`.
+Com `--plot-level none`, as métricas continuam sendo salvas, mas nenhum PNG é criado.
+
+A comparação mostra máximo, média e mediana de V/C, percentuais acima de 0,8
+e 1,0, status e gap de cada baseline. `NO_CONVERGENCE` significa apenas que
+o critério de convergência não foi atendido; não comprova saturação. Soluções
+parciais mantêm seus indicadores, identificadas como tal. Nas remoções,
+`final_relative_gap`, `iterations` e `max_vc_ratio` são gravados em
+`result.json` e nos CSVs de remoções quando há resultado utilizável.
+O critério existente de `possible_braess` permanece intacto e exige convergência.
+
+O comando da seção anterior executa o smoke autorizado de três demandas,
+três candidatas por demanda e todas as figuras. Ao final, o terminal resume
+os indicadores de cada demanda, quantos baselines convergiram e as contagens
+de remoções OK, DISCONNECTED, NO_CONVERGENCE e ERROR.
