@@ -78,7 +78,11 @@ def plot_vc_demand_comparison(rows, path):
                          "o-", label=label, color=color)
         axes[0].set_ylabel("Fluxo / capacidade")
         axes[0].set_ylim(bottom=0)
-        axes[1].set(ylabel="% das arestas ativas", ylim=(0, 100))
+        percentages = [r[f"percent_active_edges_vc_gt_{suffix}"] for r in rows for suffix in ("0_8", "1_0")
+                       if r[f"percent_active_edges_vc_gt_{suffix}"] is not None]
+        # Preserve zero while making small fractions visible.
+        percent_top = min(100, max(10, max(percentages, default=0) * 1.3))
+        axes[1].set(ylabel="% das arestas ativas", ylim=(0, percent_top))
         for axis in axes:
             axis.set_xticks(x, labels)
             axis.set_xlabel("Demanda (veíc/h) · status e gap independentes da saturação")
