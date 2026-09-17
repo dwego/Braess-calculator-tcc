@@ -3,3 +3,4 @@ osmnx
 numpy
 scipy
 pytest
+matplotlib

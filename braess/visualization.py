@@ -6,12 +6,10 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import networkx as nx
-import osmnx as ox
-from matplotlib import colormaps
-from matplotlib.colors import Normalize
 
 from braess.frank_wolfe import FrankWolfeResult
 from braess.models import EdgeFlowMap, EdgeId
+from braess.urban_flow_plots import plot_delta_flows, plot_urban_flows
 
 
 def plot_convergence(
@@ -201,154 +199,6 @@ def plot_synthetic_flows(
     plt.close(figure)
 
 
-def plot_urban_flows(
-    graph: nx.MultiDiGraph,
-    flows: EdgeFlowMap,
-    output_path: str | Path,
-    *,
-    title: str = "Fluxos no equilíbrio da rede urbana",
-    minimum_active_flow: float = 1e-8,
-) -> None:
-    """
-    Gera o mapa de fluxos da rede urbana.
-
-    Representação:
-
-    - rede completa: linhas finas e discretas;
-    - arestas com fluxo: linhas destacadas;
-    - espessura: fluxo absoluto;
-    - cor: relação fluxo/capacidade.
-    """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    active_edges: list[
-        tuple[Any, Any, Any, dict[str, Any]]
-    ] = []
-
-    active_flows: list[float] = []
-    active_ratios: list[float] = []
-
-    for u, v, key, data in graph.edges(
-        keys=True,
-        data=True,
-    ):
-        edge = EdgeId(u, v, key)
-        flow = flows.get(edge, 0.0)
-
-        if flow <= minimum_active_flow:
-            continue
-
-        capacity = _numeric_value(
-            data.get("capacity")
-        )
-
-        ratio = (
-            flow / capacity
-            if capacity > 0.0
-            else 0.0
-        )
-
-        active_edges.append(
-            (u, v, key, data)
-        )
-        active_flows.append(flow)
-        active_ratios.append(ratio)
-
-    maximum_flow = max(
-        active_flows,
-        default=1.0,
-    )
-
-    maximum_ratio = max(
-        active_ratios,
-        default=1.0,
-    )
-
-    normalization = Normalize(
-        vmin=0.0,
-        vmax=max(1.0, maximum_ratio),
-    )
-
-    colormap = colormaps["viridis"]
-
-    active_widths = [
-        _scale_width(
-            value=flow,
-            maximum=maximum_flow,
-            minimum_width=1.0,
-            maximum_width=6.0,
-        )
-        for flow in active_flows
-    ]
-
-    active_colors = [
-        colormap(
-            normalization(ratio)
-        )
-        for ratio in active_ratios
-    ]
-
-    figure, axis = ox.plot_graph(
-        graph,
-        node_size=0,
-        edge_color="#d0d0d0",
-        edge_linewidth=0.35,
-        bgcolor="white",
-        show=False,
-        close=False,
-    )
-
-    figure.patch.set_facecolor("white")
-    axis.set_facecolor("white")
-
-    if active_edges:
-        active_graph = _build_active_subgraph(
-            graph=graph,
-            active_edges=active_edges,
-        )
-
-        ox.plot_graph(
-            active_graph,
-            ax=axis,
-            node_size=0,
-            edge_color=active_colors,
-            edge_linewidth=active_widths,
-            bgcolor="white",
-            show=False,
-            close=False,
-        )
-
-    axis.set_title(title)
-
-    scalar_map = plt.cm.ScalarMappable(
-        norm=normalization,
-        cmap=colormap,
-    )
-
-    scalar_map.set_array([])
-
-    figure.colorbar(
-        scalar_map,
-        ax=axis,
-        fraction=0.03,
-        pad=0.02,
-        label="Relação fluxo/capacidade",
-    )
-
-    figure.savefig(
-        output_path,
-        dpi=300,
-        bbox_inches="tight",
-        facecolor="white",
-    )
-
-    plt.close(figure)
-
-
 def plot_flow_comparison(
     baseline_result: FrankWolfeResult,
     modified_result: FrankWolfeResult,
@@ -414,45 +264,6 @@ def plot_flow_comparison(
     )
 
     plt.close(figure)
-
-
-def _build_active_subgraph(
-    *,
-    graph: nx.MultiDiGraph,
-    active_edges: list[
-        tuple[Any, Any, Any, dict[str, Any]]
-    ],
-) -> nx.MultiDiGraph:
-    """
-    Cria um subgrafo contendo apenas arestas com fluxo.
-    """
-    active_graph = nx.MultiDiGraph()
-
-    active_graph.graph.update(
-        graph.graph
-    )
-
-    active_nodes: set[Any] = set()
-
-    for u, v, _, _ in active_edges:
-        active_nodes.add(u)
-        active_nodes.add(v)
-
-    for node in active_nodes:
-        active_graph.add_node(
-            node,
-            **graph.nodes[node],
-        )
-
-    for u, v, key, data in active_edges:
-        active_graph.add_edge(
-            u,
-            v,
-            key=key,
-            **data,
-        )
-
-    return active_graph
 
 
 def _scale_width(

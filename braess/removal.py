@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
+from time import perf_counter
 
 import networkx as nx
 
@@ -62,6 +63,12 @@ class RemovalResult:
         Melhoria relativa em relação ao cenário-base.
     possible_braess:
         Indica uma possível manifestação do paradoxo no modelo.
+    total_runtime_seconds:
+        Tempo de cópia, remoção, conectividade, solver e métricas finais.
+    solver_runtime_seconds:
+        Tempo somente da chamada ao Frank-Wolfe; zero se não executada.
+    status:
+        OK, DISCONNECTED, NO_CONVERGENCE ou ERROR.
     """
 
     candidate: RemovalCandidate
@@ -76,6 +83,9 @@ class RemovalResult:
     relative_improvement: float | None
 
     possible_braess: bool
+    total_runtime_seconds: float = 0.0
+    solver_runtime_seconds: float = 0.0
+    status: str = "OK"
 
 
 ScenarioProgressCallback = Callable[
@@ -190,6 +200,7 @@ def run_single_removal(
     relative_gap_tolerance: float,
     max_iterations: int,
     numerical_tolerance: float = 1e-9,
+    line_search_tolerance: float = 1e-10,
     progress_callback: (
         Callable[[FrankWolfeIteration], None] | None
     ) = None,
@@ -212,63 +223,49 @@ def run_single_removal(
             "A tolerância numérica não pode ser negativa."
         )
 
-    modified_graph = deepcopy(graph)
-
-    edge = candidate.edge
-
-    if not modified_graph.has_edge(
-        edge.u,
-        edge.v,
-        edge.key,
-    ):
-        return _failed_result(
-            candidate=candidate,
-            baseline_result=baseline_result,
-            connected=False,
-            error=(
-                f"A aresta {edge} não existe no grafo."
-            ),
-        )
-
-    modified_graph.remove_edge(
-        edge.u,
-        edge.v,
-        edge.key,
-    )
-
-    if not all_od_pairs_are_connected(
-        modified_graph,
-        od_pairs,
-    ):
-        return _failed_result(
-            candidate=candidate,
-            baseline_result=baseline_result,
-            connected=False,
-            error=(
-                "A remoção desconectou ao menos "
-                "um par origem-destino."
-            ),
-        )
-
+    started_at = perf_counter()
+    solver_runtime = 0.0
+    connected = False
     try:
-        modified_result = frank_wolfe(
-            modified_graph,
-            od_pairs,
-            relative_gap_tolerance=(
-                relative_gap_tolerance
-            ),
-            max_iterations=max_iterations,
-            progress_callback=progress_callback,
-        )
+        modified_graph = deepcopy(graph)
+        edge = candidate.edge
+        if not modified_graph.has_edge(edge.u, edge.v, edge.key):
+            raise KeyError(f"A aresta {edge} não existe no grafo.")
+        modified_graph.remove_edge(edge.u, edge.v, edge.key)
+        connected = all_od_pairs_are_connected(modified_graph, od_pairs)
+        if not connected:
+            return _failed_result(
+                candidate=candidate,
+                baseline_result=baseline_result,
+                connected=False,
+                error="A remoção desconectou ao menos um par origem-destino.",
+                status="DISCONNECTED",
+                total_runtime_seconds=perf_counter() - started_at,
+            )
+
+        solver_started_at = perf_counter()
+        try:
+            modified_result = frank_wolfe(
+                modified_graph,
+                od_pairs,
+                relative_gap_tolerance=relative_gap_tolerance,
+                max_iterations=max_iterations,
+                line_search_tolerance=line_search_tolerance,
+                progress_callback=progress_callback,
+            )
+        finally:
+            solver_runtime = perf_counter() - solver_started_at
     except Exception as exception:
         return _failed_result(
             candidate=candidate,
             baseline_result=baseline_result,
-            connected=True,
+            connected=connected,
             error=(
                 f"{type(exception).__name__}: "
                 f"{exception}"
             ),
+            total_runtime_seconds=perf_counter() - started_at,
+            solver_runtime_seconds=solver_runtime,
         )
 
     baseline_tstt = (
@@ -304,6 +301,12 @@ def run_single_removal(
         absolute_improvement=absolute_improvement,
         relative_improvement=relative_improvement,
         possible_braess=possible_braess,
+        total_runtime_seconds=perf_counter() - started_at,
+        solver_runtime_seconds=solver_runtime,
+        status=(
+            "OK" if baseline_result.converged and modified_result.converged
+            else "NO_CONVERGENCE"
+        ),
     )
 
 
@@ -316,6 +319,7 @@ def run_removal_experiments(
     relative_gap_tolerance: float,
     max_iterations: int,
     numerical_tolerance: float = 1e-9,
+    line_search_tolerance: float = 1e-10,
     scenario_progress_callback: (
         ScenarioProgressCallback | None
     ) = None,
@@ -362,6 +366,7 @@ def run_removal_experiments(
             numerical_tolerance=(
                 numerical_tolerance
             ),
+            line_search_tolerance=line_search_tolerance,
             progress_callback=progress_callback,
         )
 
@@ -426,6 +431,9 @@ def _failed_result(
     baseline_result: FrankWolfeResult,
     connected: bool,
     error: str,
+    status: str = "ERROR",
+    total_runtime_seconds: float = 0.0,
+    solver_runtime_seconds: float = 0.0,
 ) -> RemovalResult:
     """
     Cria um resultado padronizado para cenário inválido.
@@ -442,6 +450,9 @@ def _failed_result(
         absolute_improvement=None,
         relative_improvement=None,
         possible_braess=False,
+        status=status,
+        total_runtime_seconds=total_runtime_seconds,
+        solver_runtime_seconds=solver_runtime_seconds,
     )
 
 

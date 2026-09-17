@@ -1,0 +1,413 @@
+"""Bateria de cenários independentes: um baseline por direção e demanda."""
+from __future__ import annotations
+
+import platform
+import subprocess
+from collections import Counter
+from datetime import datetime, timezone
+from importlib.metadata import version
+from pathlib import Path
+from time import perf_counter
+
+from braess.experiment_config import load_config, point_members, route_node, scenario_count, validate_config
+from braess.experiment_maps import load_map_snapshot, prepare_inputs
+from braess.experiment_progress import log_progress, progress_phase
+from braess.frank_wolfe import FrankWolfeResult, frank_wolfe
+from braess.models import EdgeId, ODPair
+from braess.outputs import save_edge_results, save_iteration_history, save_json, save_records, save_summary
+from braess.removal import RemovalCandidate, RemovalResult, all_od_pairs_are_connected, run_single_removal, select_removal_candidates
+from braess.saturation import saturation_metrics, plot_vc_distribution, plot_vc_demand_comparison
+from braess.synthetic import update_travel_times
+from braess.urban import BPR_PARAMETERS, prepare_urban_graph
+
+
+REMOVAL_FIELDS = [
+    "map_id", "od_pair_id", "direction", "origin_label", "destination_label",
+    "origin_node", "destination_node", "demand", "u", "v", "key", "osmid",
+    "name", "highway", "length", "lanes", "free_flow_time", "capacity",
+    "capacity_source", "bpr_alpha", "bpr_beta", "bpr_link_type", "baseline_flow",
+    "baseline_travel_time", "baseline_vc_ratio", "baseline_volume_capacity_ratio",
+    "status", "connected", "converged", "error", "final_relative_gap", "iterations", "max_vc_ratio",
+    "baseline_tstt", "modified_tstt", "absolute_improvement", "relative_improvement",
+    "relative_improvement_percent", "baseline_average_travel_time", "modified_average_travel_time",
+    "baseline_beckmann_objective", "modified_beckmann_objective", "baseline_iterations",
+    "modified_iterations", "baseline_relative_gap", "modified_relative_gap",
+    "baseline_converged", "modified_converged", "possible_braess",
+    "baseline_runtime_seconds", "removal_runtime_seconds", "solver_runtime_seconds", "artifact_errors",
+]
+
+
+def _metrics(result: FrankWolfeResult | None, prefix: str) -> dict:
+    names = {"tstt": "total_system_travel_time", "average_travel_time": "average_travel_time",
+             "beckmann_objective": "beckmann_objective", "iterations": "iterations",
+             "relative_gap": "relative_gap", "converged": "converged"}
+    return {f"{prefix}_{key}": getattr(result, value) if result else None for key, value in names.items()}
+
+
+def _export_solution(graph, result, directory: Path, config: dict, title: str, *, plot: bool = True,
+                     flow_plots: list | None = None, removed_edge: EdgeId | None = None) -> list[str]:
+    """Uma falha de figura não descarta métricas nem impede outras remoções."""
+    errors = []
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        update_travel_times(graph, result.flows)
+    except Exception as error:
+        return [f"{type(error).__name__}: {error}"]
+    exports = [
+        lambda: save_edge_results(graph, result, directory / "edges.csv"),
+        lambda: save_iteration_history(result, directory / "convergence.csv"),
+        lambda: save_summary(result, directory / "solver.json", extra={"final_relative_gap": result.relative_gap}),
+    ]
+    if removed_edge is None:
+        exports.append(lambda: save_summary(result, directory / "summary.json", extra={
+            **saturation_metrics(graph, result.flows, config["images"]["minimum_active_flow"]),
+            "final_relative_gap": result.relative_gap,
+            "status": "OK" if result.converged else "NO_CONVERGENCE",
+        }))
+    if plot and config["images"]["enabled"] and config["images"]["plot_level"] != "none":
+        exports.extend([
+            lambda: _export_images(graph, result, directory, config, title,
+                                   flow_plots=flow_plots, removed_edge=removed_edge),
+        ])
+        if removed_edge is None:
+            exports.append(lambda: plot_vc_distribution(
+                graph, result, config["images"]["minimum_active_flow"], directory / "vc_distribution.png", title))
+    for export in exports:
+        try:
+            export()
+        except Exception as error:
+            errors.append(f"{type(error).__name__}: {error}")
+    return errors
+
+
+def _export_images(graph, result, directory: Path, config: dict, title: str, *,
+                   flow_plots: list | None = None, removed_edge: EdgeId | None = None) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    from braess.visualization import plot_convergence, plot_urban_flows
+    plot_convergence(result, directory / "convergence.png", title=title,
+                     tolerance=config["solver"]["relative_gap_tolerance"])
+    if flow_plots is not None:
+        # Adia somente o desenho: o domínio das escalas inclui todas as remoções.
+        flow_plots.append((result.flows, directory, title, removed_edge))
+    else:
+        plot_urban_flows(graph, result.flows, directory / "flows.png", title=title,
+                         minimum_active_flow=config["images"]["minimum_active_flow"])
+
+
+def _export_flow_comparisons(graph, baseline_flows, flow_plots, identity, config):
+    """Pós-processamento gráfico, sem novas chamadas ao solver ou mudanças de fluxo."""
+    from dataclasses import asdict
+    from braess.urban_flow_plots import UrbanFlowGeometry, UrbanFlowScale, plot_delta_flows, plot_urban_flows
+    errors = {directory: [] for _, directory, _, _ in flow_plots}
+    try:
+        geometry = UrbanFlowGeometry(graph)
+        geometry.focus_on([removed for _, _, _, removed in flow_plots])
+        scale = UrbanFlowScale.from_flows(graph, [flows for flows, _, _, _ in flow_plots], baseline_flows=baseline_flows)
+    except Exception as error:
+        return {directory: [f"Falha na geometria/escala das figuras: {error}"] for directory in errors}
+    endpoints = {field: identity[field] for field in ("origin_node", "destination_node", "origin_label", "destination_label")}
+    for flows, directory, title, removed_edge in flow_plots:
+        options = dict(scale=scale, geometry=geometry, removed_edge=removed_edge, **endpoints)
+        exports = [lambda: plot_urban_flows(graph, flows, directory / "flows.png", title=title,
+                                            minimum_active_flow=config["images"]["minimum_active_flow"], **options)]
+        if removed_edge is not None:
+            exports.append(lambda: plot_delta_flows(graph, baseline_flows, flows, directory / "delta_flow.png",
+                                                    title=f"Δ fluxo | {title}", **options))
+        for export in exports:
+            try:
+                export()
+            except Exception as error:
+                errors[directory].append(f"{type(error).__name__}: {error}")
+        try:
+            save_json({"scale": asdict(scale), "bounds_m": list(geometry.bounds),
+                       "detail_bounds_m": geometry.detail_bounds, **endpoints,
+                       "removed_edge": asdict(removed_edge) if removed_edge else None,
+                       "parallel_geometry_groups": len(geometry.parallel_groups),
+                       "minimum_active_flow": config["images"]["minimum_active_flow"],
+                       "vc_color_normalization": {"vmin": 0.0, "vmax": 1.5, "clip": True},
+                       "delta_definition": "modified_flow - baseline_flow"}, directory / "flow_plot.json")
+        except Exception as error:
+            errors[directory].append(f"{type(error).__name__}: {error}")
+    return errors
+
+
+def _candidates(graph, baseline, map_config: dict, config: dict) -> list[RemovalCandidate]:
+    if "removal_edges" in map_config:
+        candidates = []
+        for item in map_config["removal_edges"]:
+            edge = EdgeId(**item)
+            data = graph.get_edge_data(edge.u, edge.v, edge.key) or {}
+            candidates.append(RemovalCandidate(edge, baseline.flows.get(edge, 0.0),
+                                               str(data.get("name", "")), str(data.get("highway", ""))))
+        return candidates
+    options = config["removals"]
+    return select_removal_candidates(
+        graph, baseline,
+        limit=options["limit"] or max(1, graph.number_of_edges()),
+        minimum_flow=options["minimum_flow"],
+        excluded_highway_types=set(options["excluded_highway_types"]),
+    )
+
+
+def _edge_details(graph, candidate: RemovalCandidate) -> dict:
+    edge = candidate.edge
+    data = graph.get_edge_data(edge.u, edge.v, edge.key) or {}
+    fields = ("osmid", "name", "highway", "length", "lanes", "free_flow_time", "capacity",
+              "capacity_source", "bpr_alpha", "bpr_beta", "bpr_link_type")
+    details = {key: data.get(key) for key in fields}
+    details.update(u=edge.u, v=edge.v, key=edge.key,
+                   highway=data.get("highway_normalized", data.get("highway")),
+                   lanes=data.get("lanes_normalized", data.get("lanes")),
+                   baseline_flow=candidate.baseline_flow,
+                   baseline_travel_time=data.get("travel_time"),
+                   baseline_vc_ratio=(candidate.baseline_flow / data["capacity"] if data.get("capacity") else None))
+    details["baseline_volume_capacity_ratio"] = details["baseline_vc_ratio"]
+    return details
+
+
+def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: dict,
+                  directory: Path) -> tuple[dict, list[dict]]:
+    started_at = perf_counter()
+    points = map_config["points"]
+    identity = {
+        "map_id": map_config["id"], "od_pair_id": route["id"],
+        "direction": f"{route['origin']} -> {route['destination']}",
+        "origin_label": route["origin"], "destination_label": route["destination"],
+        "origin_node": route_node(points, route, "origin"),
+        "destination_node": route_node(points, route, "destination"), "demand": demand,
+    }
+    context = f"{map_config['id']}/{route['id']} | demanda={demand:g} veíc/h"
+    log_progress(f"{context} | nós O-D: {identity['origin_node']} → {identity['destination_node']}")
+    baseline = None
+    baseline_runtime = 0.0
+    removals = []
+    artifact_errors = []
+    flow_plots = []
+    connected = False
+    status, error = "ERROR", None
+    try:
+        od_pairs = [ODPair(identity["origin_node"], identity["destination_node"], demand)]
+        connected = all_od_pairs_are_connected(graph, od_pairs)
+        if not connected:
+            status = "DISCONNECTED"
+            error = "Par O-D desconectado na rede original."
+        else:
+            baseline_started = perf_counter()
+            try:
+                with progress_phase(f"{context} | baseline"):
+                    baseline = frank_wolfe(graph, od_pairs, **config["solver"])
+            finally:
+                baseline_runtime = perf_counter() - baseline_started
+            status = "OK" if baseline.converged else "NO_CONVERGENCE"
+            log_progress(f"{context} | baseline {status} | iterações={baseline.iterations} | "
+                         f"gap={baseline.relative_gap:.6g} | TSTT={baseline.total_system_travel_time:.6g} | "
+                         f"tempo médio={baseline.average_travel_time:.3f}s")
+            log_progress(f"{context} | exportando baseline: {directory / 'baseline'}")
+            artifact_errors.extend(_export_solution(graph, baseline, directory / "baseline", config,
+                                                    f"{map_config['id']} | {identity['direction']} | {demand} veíc/h",
+                                                    flow_plots=flow_plots))
+            candidates = _candidates(graph, baseline, map_config, config)
+            log_progress(f"{context} | {len(candidates)} candidatas selecionadas")
+            for index, candidate in enumerate(candidates, 1):
+                removal_label = f"{context} | remoção {index}/{len(candidates)} | {candidate.edge}"
+                removal_started = perf_counter()
+                try:
+                    with progress_phase(removal_label):
+                        result = run_single_removal(
+                            graph, od_pairs, baseline, candidate, **config["solver"],
+                            numerical_tolerance=config["removals"]["numerical_tolerance"],
+                        )
+                except Exception as exception:
+                    # Falhas inesperadas também não interrompem as próximas candidatas.
+                    result = RemovalResult(
+                        candidate=candidate, connected=False, solver_result=None,
+                        error=f"{type(exception).__name__}: {exception}",
+                        baseline_tstt=baseline.total_system_travel_time, modified_tstt=None,
+                        absolute_improvement=None, relative_improvement=None, possible_braess=False,
+                        status="ERROR", total_runtime_seconds=perf_counter() - removal_started,
+                    )
+                metrics = result.solver_result
+                log_progress(f"{removal_label} | status={result.status} | "
+                             f"iterações={metrics.iterations if metrics else 'n/a'} | "
+                             f"gap={metrics.relative_gap if metrics else 'n/a'} | "
+                             f"TSTT={result.modified_tstt} | possível Braess={result.possible_braess}")
+                if result.error:
+                    log_progress(f"{removal_label} | erro: {result.error}")
+                row = identity | _edge_details(graph, candidate) | {
+                    "status": result.status, "connected": result.connected,
+                    "converged": bool(result.solver_result and result.solver_result.converged),
+                    "error": result.error,
+                    "final_relative_gap": metrics.relative_gap if metrics else None,
+                    "iterations": metrics.iterations if metrics else None,
+                    "max_vc_ratio": saturation_metrics(
+                        graph, metrics.flows if metrics else None,
+                        config["images"]["minimum_active_flow"])["max_vc_ratio"],
+                    **_metrics(baseline, "baseline"), **_metrics(result.solver_result, "modified"),
+                    "absolute_improvement": result.absolute_improvement,
+                    "relative_improvement": result.relative_improvement,
+                    "relative_improvement_percent": (100 * result.relative_improvement
+                                                       if result.relative_improvement is not None else None),
+                    "possible_braess": result.possible_braess,
+                    "baseline_runtime_seconds": baseline_runtime,
+                    "removal_runtime_seconds": result.total_runtime_seconds,
+                    "solver_runtime_seconds": result.solver_runtime_seconds,
+                }
+                removal_directory = directory / "removals" / f"{candidate.edge.u}_{candidate.edge.v}_{candidate.edge.key}"
+                log_progress(f"{removal_label} | exportando: {removal_directory}")
+                row["artifact_errors"] = []
+                if result.solver_result is not None:
+                    try:
+                        # A cópia para exportação fica fora do tempo do experimento.
+                        modified_graph = graph.copy()
+                        modified_graph.remove_edge(candidate.edge.u, candidate.edge.v, candidate.edge.key)
+                        row["artifact_errors"] = _export_solution(
+                            modified_graph, result.solver_result, removal_directory, config,
+                            f"{identity['direction']} | remoção ({candidate.edge.u}, {candidate.edge.v}, {candidate.edge.key})",
+                            plot=config["images"]["plot_level"] == "all",
+                            flow_plots=flow_plots, removed_edge=candidate.edge,
+                        )
+                    except Exception as exception:
+                        row["artifact_errors"].append(f"{type(exception).__name__}: {exception}")
+                removals.append(row)
+                try:
+                    save_json(row, removal_directory / "result.json")
+                    save_records(removals, directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
+                except Exception as exception:
+                    row["artifact_errors"].append(f"{type(exception).__name__}: {exception}")
+                artifact_errors.extend(row["artifact_errors"])
+    except Exception as exception:
+        status, error = "ERROR", f"{type(exception).__name__}: {exception}"
+    if flow_plots:
+        with progress_phase(f"{context} | renderizando fluxos/deltas de {len(flow_plots)} soluções"):
+            plot_errors = _export_flow_comparisons(graph, baseline.flows, flow_plots, identity, config)
+        for plot_directory, errors in plot_errors.items():
+            artifact_errors.extend(errors)
+            if errors and plot_directory.parent.name == "removals":
+                for row in removals:
+                    if plot_directory.name == f"{row['u']}_{row['v']}_{row['key']}":
+                        row["artifact_errors"].extend(errors)
+                        save_json(row, plot_directory / "result.json")
+    saturation = saturation_metrics(graph, baseline.flows if baseline else None,
+                                    config["images"]["minimum_active_flow"])
+    summary = identity | _metrics(baseline, "baseline") | saturation | {
+        "status": status, "connected": connected, "error": error,
+        "converged": bool(baseline and baseline.converged),
+        "iterations": baseline.iterations if baseline else None,
+        "final_relative_gap": baseline.relative_gap if baseline else None,
+        "total_system_travel_time": baseline.total_system_travel_time if baseline else None,
+        "average_travel_time": baseline.average_travel_time if baseline else None,
+        "beckmann_objective": baseline.beckmann_objective if baseline else None,
+        "total_demand": demand, "baseline_runtime_seconds": baseline_runtime,
+        "scenario_runtime_seconds": perf_counter() - started_at,
+        "removal_count": len(removals), "possible_braess_count": sum(r["possible_braess"] for r in removals),
+        "artifact_errors": artifact_errors,
+    }
+    save_records(removals, directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
+    save_json(summary, directory / "summary.json")
+    save_records([summary], directory / "scenario_summary.csv")
+    log_progress(f"{context} | fim: {status} | remoções={len(removals)} | "
+                 f"tempo total={summary['scenario_runtime_seconds']:.1f}s | saída={directory}")
+    if error:
+        log_progress(f"{context} | erro: {error}")
+    for artifact_error in artifact_errors:
+        log_progress(f"{context} | erro de exportação: {artifact_error}")
+    return summary, removals
+
+
+def _revision() -> dict:
+    repository = Path(__file__).resolve().parents[1]
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
+        dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=repository, text=True).strip())
+        return {"commit": commit, "dirty": dirty}
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
+def run_experiments(config: dict, output_directory: str | Path) -> dict:
+    """Executa somente entradas congeladas; nunca faz geocoding ou baixa OSM."""
+    config = validate_config(config)
+    for map_config in config["maps"]:
+        if not map_config.get("graphml") or not map_config.get("graph_sha256") or any(
+            member.get("node_id") is None for point in map_config["points"].values() for member in point_members(point)
+        ):
+            raise ValueError("Execute 'prepare' primeiro e use o scenarios.json produzido.")
+    started_at = perf_counter()
+    output_directory = Path(output_directory).resolve()
+    output_directory.mkdir(parents=True, exist_ok=False)
+    # Inclui cópias portáveis das redes brutas, coordenadas e parâmetros usados.
+    log_progress(f"Execução: {scenario_count(config)} cenários-base | saída={output_directory}")
+    with progress_phase("Preparando cópias das entradas"):
+        frozen_path = prepare_inputs(config, output_directory / "inputs")
+    frozen = load_config(frozen_path)
+    metadata = {
+        "started_at": datetime.now(timezone.utc).isoformat(), "code": _revision(),
+        "python": platform.python_version(),
+        "packages": {name: version(name) for name in ("networkx", "osmnx", "numpy", "scipy", "matplotlib", "pyproj")},
+        "bpr_parameters": BPR_PARAMETERS, "scenario_count": scenario_count(frozen),
+        "units": {"flow": "vehicles/hour", "travel_time": "seconds", "tstt": "vehicles*seconds/hour", "runtime": "seconds"},
+    }
+    save_json(metadata | {"status": "RUNNING"}, output_directory / "experiment.json")
+    scenarios, removals = [], []
+    for map_config in frozen["maps"]:
+        with progress_phase(f"{map_config['id']} | carregando e preparando grafo"):
+            graph = prepare_urban_graph(load_map_snapshot(map_config), **frozen["urban"])
+        log_progress(f"{map_config['id']} | {graph.number_of_nodes()} nós | {graph.number_of_edges()} arestas")
+        for route in map_config["routes"]:
+            for demand in route.get("demands", frozen["demands"]):
+                log_progress(f"Cenário {len(scenarios) + 1}/{metadata['scenario_count']} | "
+                             f"{map_config['id']}/{route['id']} | demanda={demand:g} veíc/h")
+                directory = output_directory / "scenarios" / map_config["id"] / route["id"] / f"demand-{demand}"
+                summary, results = _run_scenario(graph, map_config, route, demand, frozen, directory)
+                scenarios.append(summary)
+                removals.extend(results)
+                save_records(scenarios, output_directory / "baselines.csv")
+                save_records(scenarios, output_directory / "scenario_summary.csv")
+                save_records(removals, output_directory / "removals.csv", fieldnames=REMOVAL_FIELDS)
+    comparison_errors = []
+    if frozen["images"]["enabled"] and frozen["images"]["plot_level"] != "none":
+        for map_config in frozen["maps"]:
+            for route in map_config["routes"]:
+                rows = [r for r in scenarios if r["map_id"] == map_config["id"] and r["od_pair_id"] == route["id"]]
+                if len(rows) >= 2:
+                    try:
+                        plot_vc_demand_comparison(rows, output_directory / "scenarios" / map_config["id"]
+                                                 / route["id"] / "vc_demand_comparison.png")
+                    except Exception as exception:
+                        comparison_errors.append(f"{map_config['id']}/{route['id']}: {exception}")
+    groups = []
+    for map_config in frozen["maps"]:
+        rows = [row for row in removals if row["map_id"] == map_config["id"]]
+        groups.append({"map_id": map_config["id"], "removals": len(rows),
+                       **{status: sum(row["status"] == status for row in rows)
+                          for status in ("OK", "DISCONNECTED", "NO_CONVERGENCE", "ERROR")},
+                       "possible_braess": sum(row["possible_braess"] for row in rows)})
+    save_records(groups, output_directory / "aggregated.csv")
+    has_errors = bool(comparison_errors) or any(row["status"] == "ERROR" or row["artifact_errors"] for row in [*scenarios, *removals])
+    metadata.update(
+        status="COMPLETED_WITH_ERRORS" if has_errors else "COMPLETED",
+        completed_at=datetime.now(timezone.utc).isoformat(),
+        comparison_artifact_errors=comparison_errors,
+        completed_scenarios=len(scenarios), removal_count=len(removals),
+        baseline_status_counts=dict(Counter(row["status"] for row in scenarios)),
+        removal_status_counts=dict(Counter(row["status"] for row in removals)),
+        possible_braess_count=sum(row["possible_braess"] for row in removals),
+        total_experiment_runtime_seconds=perf_counter() - started_at,
+    )
+    save_json(metadata, output_directory / "experiment.json")
+    log_progress(f"{metadata['status']} | cenários={len(scenarios)} | remoções={len(removals)} | "
+                 f"tempo total={metadata['total_experiment_runtime_seconds']:.1f}s")
+    for row in scenarios:
+        log_progress(f"{row['map_id']}/{row['od_pair_id']} | Demanda {row['demand']:g} | "
+                     f"max v/c={row['max_vc_ratio']} | mean active v/c={row['mean_active_vc_ratio']} | "
+                     f"median active v/c={row['median_active_vc_ratio']} | "
+                     f"% edges > 0.8={row['percent_active_edges_vc_gt_0_8']} | "
+                     f"% edges > 1.0={row['percent_active_edges_vc_gt_1_0']} | "
+                     f"status={row['status']} | gap={row['final_relative_gap']}")
+    log_progress(f"Baselines convergidos: {sum(r['converged'] for r in scenarios)}/{len(scenarios)}")
+    for status in ("OK", "DISCONNECTED", "NO_CONVERGENCE", "ERROR"):
+        log_progress(f"Remoções {status}: {metadata['removal_status_counts'].get(status, 0)}")
+    for error in comparison_errors:
+        log_progress(f"Erro na comparação entre demandas: {error}")
+    return metadata

@@ -37,6 +37,7 @@ def save_edge_results(
         "u",
         "v",
         "key",
+        "osmid",
         "name",
         "highway",
         "bpr_link_type",
@@ -94,6 +95,7 @@ def save_edge_results(
                     "u": u,
                     "v": v,
                     "key": key,
+                    "osmid": data.get("osmid", ""),
 
                     "name": data.get(
                         "name",
@@ -307,3 +309,31 @@ def _as_float(
         )
 
     return 0.0
+
+
+def save_json(data: Any, output_path: str | Path) -> None:
+    """Escreve JSON estrito e substitui o arquivo somente após concluir a escrita."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_suffix(output_path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(output_path)
+
+
+def save_records(
+    rows: list[dict[str, Any]], output_path: str | Path,
+    *, fieldnames: list[str] | None = None,
+) -> None:
+    """Salva tabela agregada preservando campos de registros com falhas."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(dict.fromkeys([*(fieldnames or []), *(key for row in rows for key in row)]))
+    with output_path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list))
+                             else value for key, value in row.items()})
