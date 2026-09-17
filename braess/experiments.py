@@ -42,7 +42,8 @@ def _metrics(result: FrankWolfeResult | None, prefix: str) -> dict:
     return {f"{prefix}_{key}": getattr(result, value) if result else None for key, value in names.items()}
 
 
-def _export_solution(graph, result, directory: Path, config: dict, title: str, *, plot: bool = True) -> list[str]:
+def _export_solution(graph, result, directory: Path, config: dict, title: str, *, plot: bool = True,
+                     flow_plots: list | None = None, removed_edge: EdgeId | None = None) -> list[str]:
     """Uma falha de figura não descarta métricas nem impede outras remoções."""
     errors = []
     try:
@@ -57,7 +58,8 @@ def _export_solution(graph, result, directory: Path, config: dict, title: str, *
     ]
     if plot and config["images"]["enabled"] and config["images"]["plot_level"] != "none":
         exports.extend([
-            lambda: _export_images(graph, result, directory, config, title),
+            lambda: _export_images(graph, result, directory, config, title,
+                                   flow_plots=flow_plots, removed_edge=removed_edge),
         ])
     for export in exports:
         try:
@@ -67,14 +69,55 @@ def _export_solution(graph, result, directory: Path, config: dict, title: str, *
     return errors
 
 
-def _export_images(graph, result, directory: Path, config: dict, title: str) -> None:
+def _export_images(graph, result, directory: Path, config: dict, title: str, *,
+                   flow_plots: list | None = None, removed_edge: EdgeId | None = None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     from braess.visualization import plot_convergence, plot_urban_flows
     plot_convergence(result, directory / "convergence.png", title=title,
                      tolerance=config["solver"]["relative_gap_tolerance"])
-    plot_urban_flows(graph, result.flows, directory / "flows.png", title=title,
-                     minimum_active_flow=config["images"]["minimum_active_flow"])
+    if flow_plots is not None:
+        # Adia somente o desenho: o domínio das escalas inclui todas as remoções.
+        flow_plots.append((result.flows, directory, title, removed_edge))
+    else:
+        plot_urban_flows(graph, result.flows, directory / "flows.png", title=title,
+                         minimum_active_flow=config["images"]["minimum_active_flow"])
+
+
+def _export_flow_comparisons(graph, baseline_flows, flow_plots, identity, config):
+    """Pós-processamento gráfico, sem novas chamadas ao solver ou mudanças de fluxo."""
+    from dataclasses import asdict
+    from braess.urban_flow_plots import UrbanFlowGeometry, UrbanFlowScale, plot_delta_flows, plot_urban_flows
+    errors = {directory: [] for _, directory, _, _ in flow_plots}
+    try:
+        geometry = UrbanFlowGeometry(graph)
+        geometry.focus_on([removed for _, _, _, removed in flow_plots])
+        scale = UrbanFlowScale.from_flows(graph, [flows for flows, _, _, _ in flow_plots], baseline_flows=baseline_flows)
+    except Exception as error:
+        return {directory: [f"Falha na geometria/escala das figuras: {error}"] for directory in errors}
+    endpoints = {field: identity[field] for field in ("origin_node", "destination_node", "origin_label", "destination_label")}
+    for flows, directory, title, removed_edge in flow_plots:
+        options = dict(scale=scale, geometry=geometry, removed_edge=removed_edge, **endpoints)
+        exports = [lambda: plot_urban_flows(graph, flows, directory / "flows.png", title=title,
+                                            minimum_active_flow=config["images"]["minimum_active_flow"], **options)]
+        if removed_edge is not None:
+            exports.append(lambda: plot_delta_flows(graph, baseline_flows, flows, directory / "delta_flow.png",
+                                                    title=f"Δ fluxo | {title}", **options))
+        for export in exports:
+            try:
+                export()
+            except Exception as error:
+                errors[directory].append(f"{type(error).__name__}: {error}")
+        try:
+            save_json({"scale": asdict(scale), "bounds_m": list(geometry.bounds),
+                       "detail_bounds_m": geometry.detail_bounds, **endpoints,
+                       "removed_edge": asdict(removed_edge) if removed_edge else None,
+                       "parallel_geometry_groups": len(geometry.parallel_groups),
+                       "minimum_active_flow": config["images"]["minimum_active_flow"],
+                       "delta_definition": "modified_flow - baseline_flow"}, directory / "flow_plot.json")
+        except Exception as error:
+            errors[directory].append(f"{type(error).__name__}: {error}")
+    return errors
 
 
 def _candidates(graph, baseline, map_config: dict, config: dict) -> list[RemovalCandidate]:
@@ -126,6 +169,7 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
     baseline_runtime = 0.0
     removals = []
     artifact_errors = []
+    flow_plots = []
     connected = False
     status, error = "ERROR", None
     try:
@@ -142,7 +186,8 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                 baseline_runtime = perf_counter() - baseline_started
             status = "OK" if baseline.converged else "NO_CONVERGENCE"
             artifact_errors.extend(_export_solution(graph, baseline, directory / "baseline", config,
-                                                    f"{map_config['id']} | {identity['direction']} | {demand} veíc/h"))
+                                                    f"{map_config['id']} | {identity['direction']} | {demand} veíc/h",
+                                                    flow_plots=flow_plots))
             for index, candidate in enumerate(_candidates(graph, baseline, map_config, config), 1):
                 print(f"  remoção {index}: {candidate.edge}", flush=True)
                 removal_started = perf_counter()
@@ -185,6 +230,7 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                             modified_graph, result.solver_result, removal_directory, config,
                             f"{identity['direction']} | remoção ({candidate.edge.u}, {candidate.edge.v}, {candidate.edge.key})",
                             plot=config["images"]["plot_level"] == "all",
+                            flow_plots=flow_plots, removed_edge=candidate.edge,
                         )
                     except Exception as exception:
                         row["artifact_errors"].append(f"{type(exception).__name__}: {exception}")
@@ -197,6 +243,15 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
                 artifact_errors.extend(row["artifact_errors"])
     except Exception as exception:
         status, error = "ERROR", f"{type(exception).__name__}: {exception}"
+    if flow_plots:
+        plot_errors = _export_flow_comparisons(graph, baseline.flows, flow_plots, identity, config)
+        for plot_directory, errors in plot_errors.items():
+            artifact_errors.extend(errors)
+            if errors and plot_directory.parent.name == "removals":
+                for row in removals:
+                    if plot_directory.name == f"{row['u']}_{row['v']}_{row['key']}":
+                        row["artifact_errors"].extend(errors)
+                        save_json(row, plot_directory / "result.json")
     summary = identity | _metrics(baseline, "baseline") | {
         "status": status, "connected": connected, "error": error,
         "converged": bool(baseline and baseline.converged),

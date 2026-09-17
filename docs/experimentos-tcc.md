@@ -158,6 +158,44 @@ desliga todas as imagens. O arquivo de entrada permanece intacto, e
 `<output>/inputs/scenarios.json` registra a seleção e os parâmetros efetivamente
 usados para reproduzir o smoke test. O diretório de saída deve ser novo.
 
+### Leitura dos mapas de fluxo
+
+`flows.png` mostra a rede completa em cinza claro, com origem e destino marcados
+pelos labels da rota nos nós efetivamente utilizados. `minimum_active_flow`
+controla apenas o destaque colorido; nenhuma rua do fundo é removida pelo limiar.
+A espessura representa fluxo absoluto e a cor representa fluxo/capacidade.
+As espessuras usam escala logarítmica suave, máximo de 2,1 pontos e um limite
+adicional proporcional ao comprimento desenhado dos segmentos curtos.
+
+O baseline e todas as remoções com solução de um mesmo cenário compartilham
+os máximos de fluxo e V/C, calculados sobre o conjunto dessas soluções. Também
+compartilham o enquadramento completo e o recorte do detalhe. A exportação dos
+mapas aguarda as soluções para fixar essas escalas; os cálculos e CSVs numéricos
+não são modificados. `flow_plot.json` registra os limites, os nós O-D e a aresta
+removida para conferir a comparação.
+
+Nas remoções, o trecho excluído aparece em magenta tracejado usando sua geometria
+original do baseline. Um detalhe ampliado comum aos cenários torna visíveis
+segmentos que seriam pequenos demais na visão geral. A rede original continua
+no fundo, inclusive nas figuras das redes modificadas.
+
+Cada remoção com solução também gera `delta_flow.png` quando o nível é `all`:
+
+```text
+delta = modified_flow - baseline_flow
+```
+
+Azul representa redução e vermelho representa aumento. A escala divergente é
+simétrica em torno de zero, comum às remoções desse cenário; a espessura representa
+o módulo do delta. A removida tem fluxo modificado zero e delta igual ao negativo
+do fluxo baseline. O limiar de destaque de `flows.png` não oculta redistribuições
+na figura de delta; a rede completa permanece no fundo.
+
+Arestas OSM com geometrias coincidentes são separadas por um pequeno deslocamento
+apenas no desenho, mantendo cada `(u, v, key)` e suas cores/espessuras. Setas
+indicam o sentido onde há espaço. Geometrias paralelas já distintas permanecem
+nas posições originais. Nenhuma aresta ou fluxo é agregado numericamente.
+
 ## Definir outros mapas e rotas
 
 Copie `experiments/tcc_scenarios.json`, substitua `maps` e passe o novo caminho
@@ -218,6 +256,7 @@ tcc-results/
       solver.json
       flows.png
       convergence.png
+      flow_plot.json
     removals/<u>_<v>_<key>/
       result.json
       edges.csv
@@ -225,6 +264,8 @@ tcc-results/
       solver.json
       flows.png
       convergence.png
+      delta_flow.png
+      flow_plot.json
 ```
 
 Remoções sem solução possuem `result.json`, com erro/status, sem arquivos de
