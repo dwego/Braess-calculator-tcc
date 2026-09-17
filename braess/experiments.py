@@ -9,7 +9,7 @@ from importlib.metadata import version
 from pathlib import Path
 from time import perf_counter
 
-from braess.experiment_config import load_config, scenario_count, validate_config
+from braess.experiment_config import load_config, point_members, route_node, scenario_count, validate_config
 from braess.experiment_maps import load_map_snapshot, prepare_inputs
 from braess.frank_wolfe import FrankWolfeResult, frank_wolfe
 from braess.models import EdgeId, ODPair
@@ -119,8 +119,8 @@ def _run_scenario(graph, map_config: dict, route: dict, demand: float, config: d
         "map_id": map_config["id"], "od_pair_id": route["id"],
         "direction": f"{route['origin']} -> {route['destination']}",
         "origin_label": route["origin"], "destination_label": route["destination"],
-        "origin_node": points[route["origin"]]["node_id"],
-        "destination_node": points[route["destination"]]["node_id"], "demand": demand,
+        "origin_node": route_node(points, route, "origin"),
+        "destination_node": route_node(points, route, "destination"), "demand": demand,
     }
     baseline = None
     baseline_runtime = 0.0
@@ -229,7 +229,7 @@ def run_experiments(config: dict, output_directory: str | Path) -> dict:
     config = validate_config(config)
     for map_config in config["maps"]:
         if not map_config.get("graphml") or not map_config.get("graph_sha256") or any(
-            point.get("node_id") is None for point in map_config["points"].values()
+            member.get("node_id") is None for point in map_config["points"].values() for member in point_members(point)
         ):
             raise ValueError("Execute 'prepare' primeiro e use o scenarios.json produzido.")
     started_at = perf_counter()

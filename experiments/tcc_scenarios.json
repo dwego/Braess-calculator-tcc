@@ -126,8 +126,21 @@
         "A": {
           "label": "A",
           "intersection": "Av. Mario Covas x Rod. dos Tamoios",
-          "latitude": null,
-          "longitude": null
+          "type": "junction_group",
+          "nodes": [
+            {
+              "label": "A1",
+              "latitude": null,
+              "longitude": null,
+              "node_id": 1425156870
+            },
+            {
+              "label": "A2",
+              "latitude": null,
+              "longitude": null,
+              "node_id": 1425164988
+            }
+          ]
         },
         "B": {
           "label": "B",

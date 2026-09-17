@@ -5,7 +5,7 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 
-from braess.experiment_config import load_config, scenario_count
+from braess.experiment_config import load_config, point_members, scenario_count
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config, require_coordinates=args.command in {"prepare", "run"})
         if args.command == "validate":
             missing = [f"{m['id']}/{label}" for m in config["maps"] for label, point in m["points"].items()
-                       if point.get("latitude") is None]
+                       if not point_members(point) or any(member.get("latitude") is None for member in point_members(point))]
             print(f"Configuração válida: {len(config['maps'])} mapas, {scenario_count(config)} cenários-base.")
             if missing:
                 print("Coordenadas pendentes: " + ", ".join(missing))
@@ -26,14 +26,11 @@ def main(argv: list[str] | None = None) -> int:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         output = args.output or Path("outputs") / f"tcc-{args.command}-{timestamp}"
         if args.command == "resolve-points":
-            from braess.experiment_maps import resolve_points
+            from resolve_tcc_points import main as resolve_main
             if args.output is None:
                 output = output.with_suffix(".json")
-            failures = resolve_points(config, output)
-            print(f"Coordenadas salvas em {output}. Confira as interseções antes de preparar os mapas.")
-            if failures:
-                print("Resolução pendente: " + ", ".join(failures))
-                return 2
+            return resolve_main(["--config", str(args.config), "--output-config", str(output),
+                                 "--output-dir", str(output.with_suffix(""))])
         elif args.command == "prepare":
             from braess.experiment_maps import prepare_inputs
             print(f"Configuração congelada: {prepare_inputs(config, output)}")

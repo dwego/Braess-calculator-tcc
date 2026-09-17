@@ -40,3 +40,14 @@ python run_tcc_experiments.py run --config outputs/example-inputs/scenarios.json
 O [guia da bateria experimental](docs/experimentos-tcc.md) explica como resolver
 os pontos, congelar as redes, rodar a bateria completa com um comando e testar
 outros mapas alterando apenas a configuração.
+
+Para conferir somente a geometria real, sem executar Frank-Wolfe ou remoções:
+
+```bash
+python resolve_tcc_points.py --config experiments/tcc_scenarios.json --output-config experiments/tcc_scenarios_resolved.json
+```
+
+O [guia de resolução dos pontos](docs/resolucao-pontos-tcc.md) explica a busca
+por nomes na malha OSM, os complexos com múltiplos nós e a validação visual.
+As imagens e o CSV ficam em `outputs/tcc-point-resolution/`; o JSON original
+é preservado. Use nomes de saída novos ao repetir a resolução.

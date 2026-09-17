@@ -294,6 +294,9 @@ def test_full_36_scenario_schedule_on_offline_fixture(tmp_path, monkeypatch):
     for map_config in config["maps"]:
         map_config["graphml"] = str(ROOT / "experiments/example_network.graphml")
         for label, point in map_config["points"].items():
+            # Este teste isola a programação de 36 cenários; grupos têm testes próprios.
+            point.pop("type", None)
+            point.pop("nodes", None)
             point["latitude"], point["longitude"] = coordinates[label]
     frozen = load_config(prepare_inputs(config, tmp_path / "inputs"))
     solver = Mock(wraps=experiments.frank_wolfe)

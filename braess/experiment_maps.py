@@ -10,7 +10,7 @@ import networkx as nx
 import osmnx as ox
 from pyproj import CRS, Transformer
 
-from braess.experiment_config import map_extent, validate_config
+from braess.experiment_config import map_extent, point_members, remap_route_nodes, route_node, validate_config
 from braess.maps.graph_builder import build_graph
 from braess.outputs import save_json
 
@@ -21,7 +21,11 @@ def file_sha256(path: str | Path) -> str:
 
 
 def resolve_points(config: dict, output_path: str | Path) -> list[str]:
-    """Auxiliar opt-in. Nunca é chamado pelo experimento ou pela preparação."""
+    """Geocoding legado, sem validação; prefira resolve_tcc_points.py.
+
+    Mantido para compatibilidade com chamadas antigas. Nenhum CLI, experimento
+    ou etapa de preparação usa este auxiliar.
+    """
     resolved = validate_config(config, require_coordinates=False)
     output_path = Path(output_path)
     if output_path.exists():
@@ -49,26 +53,38 @@ def resolve_points(config: dict, output_path: str | Path) -> list[str]:
     return failures
 
 
-def snap_points(graph: nx.MultiDiGraph, map_config: dict) -> dict:
-    """Nearest nodes em CRS métrico (SciPy já é dependência), com limite de distância."""
+def nearest_point_nodes(graph: nx.MultiDiGraph, points: dict) -> dict:
+    """Associa coordenadas a nós em CRS métrico, registrando todas as distâncias."""
     if CRS.from_user_input(graph.graph["crs"]) != CRS.from_epsg(4326):
         raise ValueError("O GraphML de entrada deve usar coordenadas EPSG:4326.")
     projected = ox.projection.project_graph(graph)
     transformer = Transformer.from_crs(graph.graph["crs"], projected.graph["crs"], always_xy=True)
-    points = deepcopy(map_config["points"])
+    points = deepcopy(points)
     for label, point in points.items():
-        x, y = transformer.transform(point["longitude"], point["latitude"])
-        node, distance = ox.distance.nearest_nodes(projected, X=x, Y=y, return_dist=True)
-        node, distance = int(node), float(distance)
-        if distance > map_config["max_snap_distance_m"]:
-            raise ValueError(f"{map_config['id']}/{label}: nó mais próximo a {distance:.1f} m; revise coordenadas/recorte.")
-        if point.get("node_id") is not None and point["node_id"] != node:
-            raise ValueError(f"{map_config['id']}/{label}: node_id diverge de nearest_nodes; prepare novamente.")
-        point.update(node_id=node, snap_distance_m=distance,
-                     node_latitude=float(graph.nodes[node]["y"]),
-                     node_longitude=float(graph.nodes[node]["x"]))
-    for route in map_config["routes"]:
-        if points[route["origin"]]["node_id"] == points[route["destination"]]["node_id"]:
+        for member in point_members(point):
+            x, y = transformer.transform(member["longitude"], member["latitude"])
+            node, distance = ox.distance.nearest_nodes(projected, X=x, Y=y, return_dist=True)
+            node, distance = int(node), float(distance)
+            member.update(node_id=node, snap_distance_m=distance,
+                          node_latitude=float(graph.nodes[node]["y"]),
+                          node_longitude=float(graph.nodes[node]["x"]))
+    return points
+
+
+def snap_points(graph: nx.MultiDiGraph, map_config: dict, *, require_same_node: bool = True) -> dict:
+    """Valida distância; IDs são fixos em snapshots, mas podem mudar numa nova rede."""
+    points = nearest_point_nodes(graph, map_config["points"])
+    for label, point in points.items():
+        for old, member in zip(point_members(map_config["points"][label]), point_members(point)):
+            if member["snap_distance_m"] > map_config["max_snap_distance_m"]:
+                raise ValueError(f"{map_config['id']}/{label}: nó mais próximo a {member['snap_distance_m']:.1f} m; revise coordenadas/recorte.")
+            if require_same_node and old.get("node_id") is not None and old["node_id"] != member["node_id"]:
+                raise ValueError(f"{map_config['id']}/{label}: node_id diverge de nearest_nodes; prepare novamente.")
+        ids = [member["node_id"] for member in point_members(point)]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"{map_config['id']}/{label}: membros do grupo resolvem para o mesmo nó.")
+    for route in remap_route_nodes(map_config["routes"], map_config["points"], points):
+        if route_node(points, route, "origin") == route_node(points, route, "destination"):
             raise ValueError(f"{map_config['id']}/{route['id']}: origem e destino resolvem para o mesmo nó.")
     return points
 
@@ -99,7 +115,9 @@ def prepare_inputs(config: dict, output_directory: str | Path) -> Path:
         graph = (load_map_snapshot(map_config) if map_config.get("graphml")
                  else build_graph(center, radius))
         graph.graph["network_type"] = "drive"
-        map_config["points"] = snap_points(graph, map_config)
+        points = snap_points(graph, map_config, require_same_node=bool(map_config.get("graph_sha256")))
+        map_config["routes"] = remap_route_nodes(map_config["routes"], map_config["points"], points)
+        map_config["points"] = points
         map_config["center"] = {"latitude": center[0], "longitude": center[1]}
         map_config["radius_m"] = radius
         directory = output_directory / "maps" / map_config["id"]
@@ -115,8 +133,8 @@ def prepare_inputs(config: dict, output_directory: str | Path) -> Path:
             "points": map_config["points"], "graph_sha256": map_config["graph_sha256"],
             "nearest_nodes_crs": str(ox.projection.project_graph(graph).graph["crs"]),
             "prepared_at": datetime.now(timezone.utc).isoformat(),
-            "routes": [dict(route, origin_node=map_config["points"][route["origin"]]["node_id"],
-                            destination_node=map_config["points"][route["destination"]]["node_id"])
+            "routes": [dict(route, origin_node=route_node(map_config["points"], route, "origin"),
+                            destination_node=route_node(map_config["points"], route, "destination"))
                        for route in map_config["routes"]],
         }
         save_json(metadata, directory / "metadata.json")

@@ -44,26 +44,25 @@ python run_tcc_experiments.py validate --config experiments/tcc_scenarios.json
 ```
 
 `validate` verifica a estrutura e informa as coordenadas pendentes sem acessar
-a internet. Você pode preencher latitude/longitude WGS84 diretamente no JSON
-ou usar o auxiliar opcional:
+a internet. Resolva e confira a geometria antes de iniciar a bateria:
 
 ```bash
-python run_tcc_experiments.py resolve-points --config experiments/tcc_scenarios.json --output outputs/tcc-coordinates.json
+python resolve_tcc_points.py --config experiments/tcc_scenarios.json --output-config experiments/tcc_scenarios_resolved.json
 ```
 
-Esse é o **único comando que faz geocoding textual**. Cada resposta do Nominatim
-é salva imediatamente, junto com consulta, origem e data. Pontos já preenchidos
-são preservados; erros ficam registrados e os demais pontos continuam sendo
-resolvidos. Para continuar uma resolução parcial, use o JSON produzido como
-`--config` e um novo arquivo como `--output`.
+O resolvedor encontra as interseções na própria malha OSM, calcula o recorte,
+verifica os sentidos das rotas e salva GraphML, CSV e PNGs a 300 dpi. Nominatim
+serve apenas à localização da região de busca. O ponto A do mapa 2 é um
+`junction_group`: suas duas junções permanecem separadas, e cada direção possui
+um nó de entrada/saída explícito. As escolhas precisam de conferência visual.
+O [guia de resolução geográfica](resolucao-pontos-tcc.md) descreve os critérios,
+limites, imagens e como resolver outros mapas. Esta etapa não chama o solver.
 
-Confira as coordenadas das interseções no mapa. Uma busca textual pode localizar
-a avenida em vez do cruzamento, ou não encontrar resultado. Corrija o JSON antes
-de preparar a rede. Não houve resolução ou validação geográfica dos pontos reais
-na implementação desta funcionalidade.
+O comando antigo `run_tcc_experiments.py resolve-points --config ... --output ...`
+também utiliza o novo resolvedor. Após aprovar visualmente o JSON produzido:
 
 ```bash
-python run_tcc_experiments.py prepare --config outputs/tcc-coordinates.json --output outputs/tcc-inputs
+python run_tcc_experiments.py prepare --config experiments/tcc_scenarios_resolved.json --output outputs/tcc-inputs
 ```
 
 `prepare` usa o `build_graph()` existente, com `network_type="drive"` e
@@ -119,9 +118,9 @@ em `--config`. Cada mapa possui:
 | Campo | Uso |
 | --- | --- |
 | `id` | Identificador único, sem espaços ou barras; usado nos diretórios. |
-| `locality` | Contexto da consulta textual opcional; não é usado durante `run`. |
-| `points` | Dicionário por label com `label`, `intersection`, `latitude`, `longitude`. |
-| `routes` | Lista de `{ "id": "X_to_Y", "origin": "X", "destination": "Y" }`. |
+| `locality` | Região da rede OSM usada para resolver as interseções; não é usada durante `run`. |
+| `points` | Dicionário por label com interseções simples ou `type: "junction_group"` e `nodes`. |
+| `routes` | Pares dirigidos com `id`, `origin`, `destination` e, para grupos, `origin_node`/`destination_node`. |
 | `margin_m`, `center`, `radius_m` | Recorte da rede. Centro e raio explícitos são opcionais. |
 | `max_snap_distance_m` | Distância máxima entre coordenada e nó associado. |
 | `graphml` | Opcional: rede OSMnx bruta local, EPSG:4326, de automóveis e já simplificada. |
@@ -129,9 +128,11 @@ em `--config`. Cada mapa possui:
 
 O sentido inverso só é executado se houver outra entrada em `routes`. Uma rota
 pode definir sua própria lista `demands`; se omitida, usa a lista global. Para
-experimentar mudanças nas coordenadas de entradas já preparadas, remova os
-`node_id` antigos e prepare novamente. Para baixar um novo recorte, remova também
-`graphml` e `graph_sha256`; manter `graphml` reutiliza exatamente a rede fornecida.
+experimentar mudanças nas coordenadas de entradas já preparadas, resolva e
+valide novamente. Para baixar uma versão atual da mesma rede, remova `graphml`
+e `graph_sha256`; `prepare` reassocia pelas coordenadas, valida o snap e atualiza
+os IDs selecionados nas rotas. Manter `graphml` reutiliza a rede fornecida;
+snapshots com hash exigem a preservação dos IDs.
 
 Os demais parâmetros também ficam no JSON:
 
